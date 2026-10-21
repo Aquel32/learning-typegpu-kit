@@ -1,5 +1,16 @@
 import { tgpu, common, d, std } from "typegpu";
-import { cameras, frames, meshPool, passes, post, targets } from "@typegpu/kit";
+import {
+  camera,
+  cameras,
+  frames,
+  lighting,
+  materials,
+  meshPool,
+  passes,
+  post,
+  shading,
+  targets,
+} from "@typegpu/kit";
 import * as web from "@typegpu/kit/web";
 import { meshes } from "@typegpu/kit/geometry";
 import { MapGenerator } from "./map";
@@ -11,9 +22,9 @@ const WIDTH = 800;
 const HEIGHT = 600;
 
 const canvas = document.querySelector("canvas")!;
-const surface = web.surface(root, canvas, { 
+const surface = web.surface(root, canvas, {
   size: { width: WIDTH, height: HEIGHT },
- });
+});
 
 const view = cameras.orbit(root, {
   size: surface,
@@ -22,14 +33,23 @@ const view = cameras.orbit(root, {
 });
 web.orbitControls(view, canvas);
 
-const mapGenerator = new MapGenerator(10, 10, 20);
+const mapGenerator = new MapGenerator(10, 10, 128);
 
 const pool = meshPool.create(root, { capacity: 3 });
 const encoder = root["~unstable"].createCommandEncoder();
 mapGenerator.addToPool(pool, encoder);
-const box = pool.add(meshes.roundedBox(), encoder);
-const ball = pool.add(meshes.sphere(), encoder);
+
+const boxGeometry = meshes.roundedBox();
+const box = pool.add(boxGeometry, encoder);
+const ballGeometry = meshes.sphere();
+const ball = pool.add(ballGeometry, encoder);
 encoder.submit();
+
+const light = lighting.create(root, {
+  settings: { sunDirection: [0.4, 1, 0.3], sunIntensity: 2 },
+  points: { capacity: 1 },
+  shadow: { size: 2048, extent: 9 },
+});
 
 const screen = targets.create(root, surface, {
   hdr: { format: "rgba16float", sampled: true },
@@ -37,8 +57,9 @@ const screen = targets.create(root, surface, {
 });
 const scene = passes
   .create(root, screen, { hdr: passes.color, depth: passes.depth })
-  .pipe(pool.inject())
-  .pipe(view.inject());
+  .pipe(view.inject())
+  .pipe(light.inject())
+  .pipe(pool.inject());
 
 const final = post.create(root, {
   format: surface.format,
@@ -51,19 +72,40 @@ const boxDrawn = scene.add({
   Vertex: Vertex,
   at: (vertexIndex, instanceIndex) => {
     "use gpu";
-    const corner = meshPool.vertexAt(vertexIndex);
+    const vertex = meshPool.vertexAt(vertexIndex);
+    const position = vertex.position + d.vec3f(timeUniform.$, 6, 0);
     return Vertex({
-      position:
-        view.uniform.$.viewProjection *
-        d.vec4f(corner.position + d.vec3f(timeUniform.$, 0, 0), 1),
-      world: corner.position,
+      position: view.uniform.$.viewProjection * d.vec4f(position, 1),
+      world: position,
+      normal: vertex.normal,
     });
   },
   surfaceOf: (vertex: d.Infer<typeof Vertex>) => {
     "use gpu";
-    return Fragment({ color: d.vec4f(vertex.world * 0.25 + 0.5, 1) });
+    const point = shading.point(vertex.world, vertex.normal);
+    const material = materials.matte(d.vec3f(0.8, 0.2, 0.2));
+    return Fragment({ color: d.vec4f(shading.shade(material, point), 1) });
   },
   color: passes.shaded,
+  draw: (pipeline) =>
+    pipeline
+      .withIndexBuffer(pool.indices)
+      .drawIndexed(box.indexCount, 1, box.firstIndex, box.baseVertex),
+});
+
+const boxCast = light.shadow.add({
+  Vertex: Vertex,
+  inject: () => pool.inject(),
+  at: (vertexIndex: number, _instanceIndex: number) => {
+    "use gpu";
+    const vertex = meshPool.vertexAt(vertexIndex);
+    const position = vertex.position + d.vec3f(timeUniform.$, 6, 0);
+    return Vertex({
+      position: camera.$.viewProjection * d.vec4f(position, 1),
+      world: position,
+      normal: vertex.normal,
+    });
+  },
   draw: (pipeline) =>
     pipeline
       .withIndexBuffer(pool.indices)
@@ -74,19 +116,39 @@ const ballDrawn = scene.add({
   Vertex: Vertex,
   at: (vertexIndex, instanceIndex) => {
     "use gpu";
-    const corner = meshPool.vertexAt(vertexIndex);
+    const vertex = meshPool.vertexAt(vertexIndex);
+    const position = vertex.position + d.vec3f(timeUniform.$, 3, 0) - 2;
     return Vertex({
-      position:
-        view.uniform.$.viewProjection *
-        d.vec4f(corner.position + d.vec3f(timeUniform.$, 0, 0) - 2, 1),
-      world: corner.position,
+      position: view.uniform.$.viewProjection * d.vec4f(position, 1),
+      world: position,
+      normal: vertex.normal,
     });
   },
   surfaceOf: (vertex: d.Infer<typeof Vertex>) => {
     "use gpu";
-    return Fragment({ color: d.vec4f(vertex.world * 0.25 + 0.5, 1) });
+    const point = shading.point(vertex.world, vertex.normal);
+    const material = materials.matte(d.vec3f(0.8, 0.2, 0.7));
+    return Fragment({ color: d.vec4f(shading.shade(material, point), 1) });
   },
   color: passes.shaded,
+  draw: (pipeline) =>
+    pipeline
+      .withIndexBuffer(pool.indices)
+      .drawIndexed(ball.indexCount, 1, ball.firstIndex, ball.baseVertex),
+});
+const ballCast = light.shadow.add({
+  Vertex: Vertex,
+  inject: () => pool.inject(),
+  at: (vertexIndex: number, _instanceIndex: number) => {
+    "use gpu";
+    const vertex = meshPool.vertexAt(vertexIndex);
+    const position = vertex.position + d.vec3f(timeUniform.$, 3, 0) - 2;
+    return Vertex({
+      position: camera.$.viewProjection * d.vec4f(position, 1),
+      world: position,
+      normal: vertex.normal,
+    });
+  },
   draw: (pipeline) =>
     pipeline
       .withIndexBuffer(pool.indices)
@@ -101,15 +163,45 @@ const mapDrawn = scene.add({
   draw: (pipeline) =>
     pipeline
       .withIndexBuffer(pool.indices)
-      .drawIndexed(mapGenerator.mesh!.indexCount, 1, mapGenerator.mesh!.firstIndex, mapGenerator.mesh!.baseVertex),
+      .drawIndexed(
+        mapGenerator.mesh!.indexCount,
+        1,
+        mapGenerator.mesh!.firstIndex,
+        mapGenerator.mesh!.baseVertex,
+      ),
 });
 
-await Promise.all([scene.initAsync(), final.initAsync()]);
+const mapCast = light.shadow.add({
+  Vertex: Vertex,
+  inject: () => pool.inject(),
+  at: (vertexIndex: number, _instanceIndex: number) => {
+    "use gpu";
+    const vertex = meshPool.vertexAt(vertexIndex);
+    const position = vertex.position;
+    return Vertex({
+      position: camera.$.viewProjection * d.vec4f(position, 1),
+      world: position,
+      normal: vertex.normal,
+    });
+  },
+  draw: (pipeline) =>
+    pipeline
+      .withIndexBuffer(pool.indices)
+      .drawIndexed(
+        mapGenerator.mesh!.indexCount,
+        1,
+        mapGenerator.mesh!.firstIndex,
+        mapGenerator.mesh!.baseVertex,
+      ),
+});
+
+await Promise.all([scene.initAsync(), light.shadow.initAsync(), final.initAsync()]);
 
 const loop = frames.create(root, (frame) => {
   timeUniform.write(std.sin(frame.time));
-
   view.update(frame.dt);
+
+  light.shadow.record(frame.encoder, [boxCast, ballCast, mapCast]);
   scene.record(frame, [boxDrawn, ballDrawn, mapDrawn]);
 
   const output = frame.encoder.beginRenderPass({
