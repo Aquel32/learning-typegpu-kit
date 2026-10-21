@@ -18,6 +18,7 @@ import { Fragment, Vertex } from "./static";
 import { RoadGenerator } from "./road";
 import { Player } from "./player";
 import { CarManager } from "./carManager";
+import { Skybox } from "./skybox";
 
 const root = await tgpu.init();
 
@@ -46,6 +47,8 @@ const roadGenerator = new RoadGenerator(root, MAP_WIDTH, MAP_HEIGHT, NODE_COUNT,
 const pool = meshPool.create(root, { capacity: 6 });
 const encoder = root["~unstable"].createCommandEncoder();
 
+const sunDirection = d.vec3f(0.4, 1, 0.3);
+
 const carManager = new CarManager(pool, encoder);
 const player = new Player(root, carManager, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.1, 0.1, 0.2));
 
@@ -55,12 +58,14 @@ const boxGeometry = meshes.roundedBox();
 const box = pool.add(boxGeometry, encoder);
 const ballGeometry = meshes.sphere();
 const ball = pool.add(ballGeometry, encoder);
+const skybox = new Skybox(root, sunDirection);
+skybox.addToPool(pool, encoder);
 encoder.submit();
 
 const light = lighting.create(root, {
-  settings: { sunDirection: [0.4, 1, 0.3], sunIntensity: 2 },
+  settings: { sunDirection: sunDirection, sunIntensity: 2 },
   points: { capacity: 1 },
-  shadow: { size: 2048, extent: 9 },
+  shadow: { size: 2048 * 3, extent: 30 },
 });
 
 const screen = targets.create(root, surface, {
@@ -232,6 +237,8 @@ const roadCast = light.shadow.add({
 const castedCars = carManager.cast(light.shadow);
 const drawnedCars = carManager.draw(scene);
 
+const skyboxDrawn = skybox.draw(scene, pool);
+
 await Promise.all([scene.initAsync(), light.shadow.initAsync(), final.initAsync()]);
 
 const loop = frames.create(root, (frame) => {
@@ -246,7 +253,7 @@ const loop = frames.create(root, (frame) => {
   view.update(frame.dt);
 
   light.shadow.record(frame.encoder, [boxCast, ballCast, mapCast, roadCast, ...castedCars]);
-  scene.record(frame, [boxDrawn, ballDrawn, mapDrawn, roadDrawn, ...drawnedCars]);
+  scene.record(frame, [skyboxDrawn, boxDrawn, ballDrawn, mapDrawn, roadDrawn, ...drawnedCars]);
 
   const output = frame.encoder.beginRenderPass({
     colorAttachments: { view: surface.view(frame) },
