@@ -16,6 +16,8 @@ import { meshes } from "@typegpu/kit/geometry";
 import { MapGenerator } from "./map";
 import { Fragment, Vertex } from "./static";
 import { RoadGenerator } from "./road";
+import { Player } from "./player";
+import { CarManager } from "./carManager";
 
 const root = await tgpu.init();
 
@@ -30,7 +32,7 @@ const surface = web.surface(root, canvas, {
 const view = cameras.orbit(root, {
   size: surface,
   target: [0, 1, 0],
-  distance: 12,
+  distance: 3,
 });
 web.orbitControls(view, canvas);
 
@@ -41,8 +43,12 @@ const NODE_COUNT = 8;
 const mapGenerator = new MapGenerator(MAP_WIDTH, MAP_HEIGHT, 1);
 const roadGenerator = new RoadGenerator(root, MAP_WIDTH, MAP_HEIGHT, NODE_COUNT, d.vec3f(-MAP_WIDTH / 2, 0.01, -MAP_HEIGHT / 2));
 
-const pool = meshPool.create(root, { capacity: 4 });
+const pool = meshPool.create(root, { capacity: 6 });
 const encoder = root["~unstable"].createCommandEncoder();
+
+const carManager = new CarManager(pool, encoder);
+const player = new Player(root, carManager, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.1, 0.1, 0.2));
+
 mapGenerator.addToPool(pool, encoder);
 roadGenerator.addToPool(pool, encoder);
 const boxGeometry = meshes.roundedBox();
@@ -180,16 +186,7 @@ const mapDrawn = scene.add({
 const mapCast = light.shadow.add({
   Vertex: Vertex,
   inject: () => pool.inject(),
-  at: (vertexIndex: number, _instanceIndex: number) => {
-    "use gpu";
-    const vertex = meshPool.vertexAt(vertexIndex);
-    const position = vertex.position;
-    return Vertex({
-      position: camera.$.viewProjection * d.vec4f(position, 1),
-      world: position,
-      normal: vertex.normal,
-    });
-  },
+  at: mapGenerator.at,
   draw: (pipeline) =>
     pipeline
       .withIndexBuffer(pool.indices)
@@ -220,16 +217,7 @@ const roadDrawn = scene.add({
 const roadCast = light.shadow.add({
   Vertex: Vertex,
   inject: () => pool.inject(),
-  at: (vertexIndex: number, _instanceIndex: number) => {
-    "use gpu";
-    const vertex = meshPool.vertexAt(vertexIndex);
-    const position = vertex.position;
-    return Vertex({
-      position: camera.$.viewProjection * d.vec4f(position, 1),
-      world: position,
-      normal: vertex.normal,
-    });
-  },
+  at: roadGenerator.at,
   draw: (pipeline) =>
     pipeline
       .withIndexBuffer(pool.indices)
@@ -241,14 +229,24 @@ const roadCast = light.shadow.add({
       ),
 });
 
+const castedCars = carManager.cast(light.shadow);
+const drawnedCars = carManager.draw(scene);
+
 await Promise.all([scene.initAsync(), light.shadow.initAsync(), final.initAsync()]);
 
 const loop = frames.create(root, (frame) => {
   timeUniform.write(std.sin(frame.time));
+  player.update(frame.dt);
+  carManager.update(frame.dt);
+  
+  const carForward = player.car.getForward();
+  view.goal.target = player.car.position;
+  view.goal.yaw = std.atan2(-carForward.x, -carForward.z);
+  view.goal.fov = player.drifts ? Math.PI / 2 : Math.PI / 3;
   view.update(frame.dt);
 
-  light.shadow.record(frame.encoder, [boxCast, ballCast, mapCast, roadCast]);
-  scene.record(frame, [boxDrawn, ballDrawn, mapDrawn, roadDrawn]);
+  light.shadow.record(frame.encoder, [boxCast, ballCast, mapCast, roadCast, ...castedCars]);
+  scene.record(frame, [boxDrawn, ballDrawn, mapDrawn, roadDrawn, ...drawnedCars]);
 
   const output = frame.encoder.beginRenderPass({
     colorAttachments: { view: surface.view(frame) },

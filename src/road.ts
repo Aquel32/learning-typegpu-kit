@@ -1,24 +1,15 @@
 import { camera, materials, meshPool, shading } from "@typegpu/kit";
 import { meshes } from "@typegpu/kit/geometry";
 import { d, std, tgpu, type TgpuCommandEncoder, type TgpuRoot, type TgpuUniform } from "typegpu";
-import { Fragment, Vertex } from "./static";
+import { Fragment, RoadNode, Vertex, RoadEdge } from "./static";
 
-const Node = d.struct({
-    position: d.vec2f,
-});
 
-const Edge = d.struct({
-    start: Node,
-    end: Node,
-    controlPoint1: d.vec2f,
-    controlPoint2: d.vec2f,
-});
 
 type RoadVertex = d.Infer<typeof meshes.Surface>;
 
 export class RoadGenerator {
-    public nodes: d.Infer<typeof Node>[];
-    public edges: d.Infer<typeof Edge>[];
+    public nodes: d.Infer<typeof RoadNode>[];
+    public edges: d.Infer<typeof RoadEdge>[];
     public mesh: meshPool.Mesh | null;
     private readonly shape: meshes.Geometry<typeof meshes.Surface>;
 
@@ -40,23 +31,25 @@ export class RoadGenerator {
         return Fragment({ color: d.vec4f(shading.shade(material, point), 1) });
     };;
 
+    private offset: d.v3f;
     private offsetUniform: TgpuUniform<d.Vec3f>;
 
     constructor(root: TgpuRoot, mapWidth: number, mapHeight: number, nodeCount: number, offset: d.v3f) {
         // pick a few random points on the map (nodes)
-        // connect the nodes with roads (edges) that contain bezier curves properties
+        // connect the nodes with roads (RoadEdges) that contain bezier curves properties
         // generate a mesh for each road segment based on the bezier curve properties    
 
+        this.offset = offset;
         this.offsetUniform = root.createUniform(d.vec3f, offset);
 
         this.nodes = generateNodes(mapWidth, mapHeight, nodeCount);
-        this.edges = generateEdges(this.nodes);
+        this.edges = generateRoadEdges(this.nodes);
 
         const vertexData: RoadVertex[] = [];
         const roadWidth = 0.5;
 
-        for (const edge of this.edges) {
-            const roadMeshVertices = generateRoadMesh(edge, roadWidth);
+        for (const RoadEdge of this.edges) {
+            const roadMeshVertices = generateRoadMesh(RoadEdge, roadWidth);
             vertexData.push(...roadMeshVertices);
         }
 
@@ -77,10 +70,35 @@ export class RoadGenerator {
         this.mesh = pool.add(this.shape, encoder);
         return this.mesh;
     }
+
+    public getStartPosition() {
+        "use gpu";
+
+        if(this.nodes.length <= 0)
+        {
+            return d.vec3f(0, 1, 0);
+        }
+
+        const worldPosition = d.vec3f(this.nodes[0].position.x, 1, this.nodes[0].position.y).add(this.offset);
+        return worldPosition;
+    }
+
+    public getStartDirection() {
+        "use gpu";
+
+        if(this.edges.length <= 1)
+        {
+            return d.vec3f(0, 0, -1);
+        }
+
+        const tangent = bezierTangent(this.edges[0].start.position, this.edges[0].controlPoint1, this.edges[0].controlPoint2, this.edges[0].end.position, 0);
+        const direction = std.normalize(d.vec3f(tangent.x, 0, tangent.y));
+        return direction;
+    }
 }
 
-function generateNodes(mapWidth: number, mapHeight: number, nodeCount: number): d.Infer<typeof Node>[] {
-    const nodes: d.Infer<typeof Node>[] = [];
+function generateNodes(mapWidth: number, mapHeight: number, nodeCount: number): d.Infer<typeof RoadNode>[] {
+    const nodes: d.Infer<typeof RoadNode>[] = [];
     for (let i = 0; i < nodeCount; i++) {
         const x = Math.random() * mapWidth;
         const y = Math.random() * mapHeight;
@@ -90,8 +108,8 @@ function generateNodes(mapWidth: number, mapHeight: number, nodeCount: number): 
     return nodes;
 }
 
-function generateEdges(nodes: d.Infer<typeof Node>[]): d.Infer<typeof Edge>[] {
-    const edges: d.Infer<typeof Edge>[] = [];
+function generateRoadEdges(nodes: d.Infer<typeof RoadNode>[]): d.Infer<typeof RoadEdge>[] {
+    const RoadEdges: d.Infer<typeof RoadEdge>[] = [];
     for (let i = 0; i < nodes.length - 1; i++) {
         const startNode = nodes[i];
         const endNode = nodes[i + 1];
@@ -105,17 +123,17 @@ function generateEdges(nodes: d.Infer<typeof Node>[]): d.Infer<typeof Edge>[] {
             endNode.position.y
         );
 
-        edges.push({
+        RoadEdges.push({
             start: startNode,
             end: endNode,
             controlPoint1: controlPoint1,
             controlPoint2: controlPoint2,
         });
     }
-    return edges;
+    return RoadEdges;
 }
 
-function generateRoadMesh(edge: d.Infer<typeof Edge>, roadWidth: number): RoadVertex[] {
+function generateRoadMesh(edge: d.Infer<typeof RoadEdge>, roadWidth: number): RoadVertex[] {
     const stripVertices: RoadVertex[] = [];
     const segments = 30;
     let previousLeft: RoadVertex | undefined;
