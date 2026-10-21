@@ -15,6 +15,7 @@ import * as web from "@typegpu/kit/web";
 import { meshes } from "@typegpu/kit/geometry";
 import { MapGenerator } from "./map";
 import { Fragment, Vertex } from "./static";
+import { RoadGenerator } from "./road";
 
 const root = await tgpu.init();
 
@@ -33,12 +34,17 @@ const view = cameras.orbit(root, {
 });
 web.orbitControls(view, canvas);
 
-const mapGenerator = new MapGenerator(10, 10, 128);
+const MAP_WIDTH = 30;
+const MAP_HEIGHT = 30;
+const NODE_COUNT = 8;
 
-const pool = meshPool.create(root, { capacity: 3 });
+const mapGenerator = new MapGenerator(MAP_WIDTH, MAP_HEIGHT, 1);
+const roadGenerator = new RoadGenerator(root, MAP_WIDTH, MAP_HEIGHT, NODE_COUNT, d.vec3f(-MAP_WIDTH / 2, 0.01, -MAP_HEIGHT / 2));
+
+const pool = meshPool.create(root, { capacity: 4 });
 const encoder = root["~unstable"].createCommandEncoder();
 mapGenerator.addToPool(pool, encoder);
-
+roadGenerator.addToPool(pool, encoder);
 const boxGeometry = meshes.roundedBox();
 const box = pool.add(boxGeometry, encoder);
 const ballGeometry = meshes.sphere();
@@ -195,14 +201,54 @@ const mapCast = light.shadow.add({
       ),
 });
 
+const roadDrawn = scene.add({
+  Vertex: Vertex,
+  at: roadGenerator.at,
+  surfaceOf: roadGenerator.surfaceOf,
+  color: passes.shaded,
+  draw: (pipeline) =>
+    pipeline
+      .withIndexBuffer(pool.indices)
+      .drawIndexed(
+        roadGenerator.mesh!.indexCount,
+        1,
+        roadGenerator.mesh!.firstIndex,
+        roadGenerator.mesh!.baseVertex,
+      ),
+});
+
+const roadCast = light.shadow.add({
+  Vertex: Vertex,
+  inject: () => pool.inject(),
+  at: (vertexIndex: number, _instanceIndex: number) => {
+    "use gpu";
+    const vertex = meshPool.vertexAt(vertexIndex);
+    const position = vertex.position;
+    return Vertex({
+      position: camera.$.viewProjection * d.vec4f(position, 1),
+      world: position,
+      normal: vertex.normal,
+    });
+  },
+  draw: (pipeline) =>
+    pipeline
+      .withIndexBuffer(pool.indices)
+      .drawIndexed(
+        roadGenerator.mesh!.indexCount,
+        1,
+        roadGenerator.mesh!.firstIndex,
+        roadGenerator.mesh!.baseVertex,
+      ),
+});
+
 await Promise.all([scene.initAsync(), light.shadow.initAsync(), final.initAsync()]);
 
 const loop = frames.create(root, (frame) => {
   timeUniform.write(std.sin(frame.time));
   view.update(frame.dt);
 
-  light.shadow.record(frame.encoder, [boxCast, ballCast, mapCast]);
-  scene.record(frame, [boxDrawn, ballDrawn, mapDrawn]);
+  light.shadow.record(frame.encoder, [boxCast, ballCast, mapCast, roadCast]);
+  scene.record(frame, [boxDrawn, ballDrawn, mapDrawn, roadDrawn]);
 
   const output = frame.encoder.beginRenderPass({
     colorAttachments: { view: surface.view(frame) },
