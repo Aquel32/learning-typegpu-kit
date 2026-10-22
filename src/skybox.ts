@@ -38,7 +38,7 @@ export class Skybox {
         const cameraDirection = std.normalize(vertex.world - camera.$.position);
         const baseColor = d.vec3f(102, 189, 255) / 255;
 
-        const perlinScale = 5;
+        const perlinScale = d.f32(5);
         const cloud = perlin3d.sample(cameraDirection * perlinScale) * 0.5 + 0.1;
 
         const sunDirection = std.normalize(this.sunDirectionUniform.$);

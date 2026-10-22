@@ -4,7 +4,7 @@ export const Vertex = d.struct({ position: d.vec4f, world: d.vec3f, normal: d.ve
 export const Fragment = d.struct({ color: d.vec4f });
 
 export const RoadNode = d.struct({
-    position: d.vec2f,
+    position: d.vec3f,
 });
 
 export const RoadEdge = d.struct({

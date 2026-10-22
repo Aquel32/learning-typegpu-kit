@@ -37,12 +37,12 @@ const view = cameras.orbit(root, {
 });
 web.orbitControls(view, canvas);
 
-const MAP_WIDTH = 30;
-const MAP_HEIGHT = 30;
+const MAP_WIDTH = 64;
+const MAP_HEIGHT = 64;
 const NODE_COUNT = 8;
 
-const mapGenerator = new MapGenerator(MAP_WIDTH, MAP_HEIGHT, 1);
-const roadGenerator = new RoadGenerator(root, MAP_WIDTH, MAP_HEIGHT, NODE_COUNT, d.vec3f(-MAP_WIDTH / 2, 0.01, -MAP_HEIGHT / 2));
+const mapGenerator = new MapGenerator(MAP_WIDTH, MAP_HEIGHT, 70);
+const roadGenerator = new RoadGenerator(root, mapGenerator, MAP_WIDTH, MAP_HEIGHT, NODE_COUNT, d.vec3f(0,0.01,0));
 
 const pool = meshPool.create(root, { capacity: 6 });
 const encoder = root["~unstable"].createCommandEncoder();
