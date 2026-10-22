@@ -19,6 +19,7 @@ import { RoadGenerator } from "./road";
 import { Player } from "./player";
 import { CarManager } from "./carManager";
 import { Skybox } from "./skybox";
+import { TreeGenerator } from "./trees";
 
 const root = await tgpu.init();
 
@@ -44,24 +45,10 @@ const NODE_COUNT = 8;
 const mapGenerator = new MapGenerator(MAP_WIDTH, MAP_HEIGHT, 70);
 const roadGenerator = new RoadGenerator(root, mapGenerator, MAP_WIDTH, MAP_HEIGHT, NODE_COUNT, d.vec3f(0,0.01,0));
 
-const pool = meshPool.create(root, { capacity: 6 });
+const pool = meshPool.create(root, { capacity: 7 });
 const encoder = root["~unstable"].createCommandEncoder();
 
 const sunDirection = d.vec3f(0.4, 1, 0.3);
-
-const carManager = new CarManager(pool, encoder);
-const player = new Player(root, carManager, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.1, 0.1, 0.2));
-
-mapGenerator.addToPool(pool, encoder);
-roadGenerator.addToPool(pool, encoder);
-const boxGeometry = meshes.roundedBox();
-const box = pool.add(boxGeometry, encoder);
-const ballGeometry = meshes.sphere();
-const ball = pool.add(ballGeometry, encoder);
-const skybox = new Skybox(root, sunDirection);
-skybox.addToPool(pool, encoder);
-encoder.submit();
-
 const light = lighting.create(root, {
   settings: { sunDirection: sunDirection, sunIntensity: 2 },
   points: { capacity: 1 },
@@ -72,6 +59,22 @@ const screen = targets.create(root, surface, {
   hdr: { format: "rgba16float", sampled: true },
   depth: { format: "depth24plus", sampled: true },
 });
+
+const carManager = new CarManager(pool, encoder);
+const player = new Player(root, carManager, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.1, 0.1, 0.2));
+
+const treeGenerator = new TreeGenerator(root, pool, mapGenerator, MAP_WIDTH, MAP_HEIGHT, 500);
+treeGenerator.addToPool(pool, encoder);
+mapGenerator.addToPool(pool, encoder);
+roadGenerator.addToPool(pool, encoder);
+const boxGeometry = meshes.roundedBox();
+const box = pool.add(boxGeometry, encoder);
+const ballGeometry = meshes.sphere();
+const ball = pool.add(ballGeometry, encoder);
+const skybox = new Skybox(root, sunDirection);
+skybox.addToPool(pool, encoder);
+encoder.submit();
+
 const scene = passes
   .create(root, screen, { hdr: passes.color, depth: passes.depth })
   .pipe(view.inject())
@@ -239,6 +242,8 @@ const drawnedCars = carManager.draw(scene);
 
 const skyboxDrawn = skybox.draw(scene, pool);
 
+const treesDrawn = treeGenerator.draw(scene, light);
+
 await Promise.all([scene.initAsync(), light.shadow.initAsync(), final.initAsync()]);
 
 const loop = frames.create(root, (frame) => {
@@ -253,7 +258,7 @@ const loop = frames.create(root, (frame) => {
   view.update(frame.dt);
 
   light.shadow.record(frame.encoder, [boxCast, ballCast, mapCast, roadCast, ...castedCars]);
-  scene.record(frame, [skyboxDrawn, boxDrawn, ballDrawn, mapDrawn, roadDrawn, ...drawnedCars]);
+  scene.record(frame, [skyboxDrawn, boxDrawn, ballDrawn, mapDrawn, roadDrawn, ...drawnedCars, treesDrawn]);
 
   const output = frame.encoder.beginRenderPass({
     colorAttachments: { view: surface.view(frame) },
