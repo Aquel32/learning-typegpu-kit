@@ -20,6 +20,7 @@ import { Player } from "./player";
 import { CarManager } from "./carManager";
 import { Skybox } from "./skybox";
 import { TreeGenerator } from "./trees";
+import { TownsGenerator } from "./towns";
 
 const root = await tgpu.init();
 
@@ -45,7 +46,7 @@ const NODE_COUNT = 8;
 const mapGenerator = new MapGenerator(MAP_WIDTH, MAP_HEIGHT, 70);
 const roadGenerator = new RoadGenerator(root, mapGenerator, MAP_WIDTH, MAP_HEIGHT, NODE_COUNT, d.vec3f(0,0.01,0));
 
-const pool = meshPool.create(root, { capacity: 7 });
+const pool = meshPool.create(root, { capacity: 64 });
 const encoder = root["~unstable"].createCommandEncoder();
 
 const sunDirection = d.vec3f(0.4, 1, 0.3);
@@ -63,8 +64,12 @@ const screen = targets.create(root, surface, {
 const carManager = new CarManager(pool, encoder);
 const player = new Player(root, carManager, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.1, 0.1, 0.2));
 
-const treeGenerator = new TreeGenerator(root, pool, mapGenerator, MAP_WIDTH, MAP_HEIGHT, 500);
+const treeGenerator = new TreeGenerator(root, pool, mapGenerator, MAP_WIDTH, MAP_HEIGHT, 10000);
 treeGenerator.addToPool(pool, encoder);
+
+const townsGenerator = new TownsGenerator(root, pool, mapGenerator, MAP_WIDTH, MAP_HEIGHT, 3, 5, 0);
+townsGenerator.addToPool(pool, encoder);
+
 mapGenerator.addToPool(pool, encoder);
 roadGenerator.addToPool(pool, encoder);
 const boxGeometry = meshes.roundedBox();
@@ -243,6 +248,10 @@ const drawnedCars = carManager.draw(scene);
 const skyboxDrawn = skybox.draw(scene, pool);
 
 const treesDrawn = treeGenerator.draw(scene, light);
+const treesCast = treeGenerator.cast(light.shadow, light);
+
+const townsDrawn = townsGenerator.draw(scene, light);
+const townsCast = townsGenerator.cast(light.shadow, light);
 
 await Promise.all([scene.initAsync(), light.shadow.initAsync(), final.initAsync()]);
 
@@ -257,8 +266,8 @@ const loop = frames.create(root, (frame) => {
   view.goal.fov = player.drifts ? Math.PI / 2 : Math.PI / 3;
   view.update(frame.dt);
 
-  light.shadow.record(frame.encoder, [boxCast, ballCast, mapCast, roadCast, ...castedCars]);
-  scene.record(frame, [skyboxDrawn, boxDrawn, ballDrawn, mapDrawn, roadDrawn, ...drawnedCars, treesDrawn]);
+  light.shadow.record(frame.encoder, [boxCast, ballCast, mapCast, roadCast, ...castedCars, treesCast, townsCast]);
+  scene.record(frame, [skyboxDrawn, boxDrawn, ballDrawn, mapDrawn, roadDrawn, ...drawnedCars, treesDrawn, townsDrawn]);
 
   const output = frame.encoder.beginRenderPass({
     colorAttachments: { view: surface.view(frame) },

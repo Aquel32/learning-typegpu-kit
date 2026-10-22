@@ -39,7 +39,7 @@ type MapVertex = d.Infer<typeof meshes.Surface>;
 export class MapGenerator {
   private width: number;
   private depth: number;
-  private subdivisions: number;
+  public subdivisions: number;
 
   private readonly shape: meshes.Geometry<typeof meshes.Surface>;
   public mesh: meshPool.Mesh | null;
