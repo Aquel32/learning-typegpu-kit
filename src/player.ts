@@ -1,6 +1,7 @@
 import { d, type TgpuRoot } from "typegpu";
 import { Car } from "./car";
 import type { CarManager } from "./carManager";
+import type { CollisionObject, CollisionSystem } from "./collision";
 
 export class Player {
     public car: Car;
@@ -15,9 +16,8 @@ export class Player {
     public handleKeyUp(event: KeyboardEvent) {
         this.pressedKeys.delete(event.key.toLocaleLowerCase());
     }
-
-    constructor(root: TgpuRoot, carManager: CarManager, initialPosition: d.v3f, initialDirection: d.v3f, initialVelocity: d.v3f, mass: number, dimensions: d.v3f) {
-        this.car = new Car(root, initialPosition, initialDirection, initialVelocity, mass, dimensions);
+    constructor(root: TgpuRoot,  collisionSystem: CollisionSystem, carManager: CarManager, initialPosition: d.v3f, initialDirection: d.v3f, initialVelocity: d.v3f, mass: number, dimensions: d.v3f) {
+        this.car = new Car(root, collisionSystem, initialPosition, initialDirection, initialVelocity, mass, dimensions);
         carManager.registerCar(this.car);
 
         document.addEventListener("keydown", (event) => this.handleKeyDown(event));

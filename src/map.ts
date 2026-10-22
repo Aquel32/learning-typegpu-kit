@@ -37,8 +37,8 @@ const heightAt = (u: number, v: number) => {
 type MapVertex = d.Infer<typeof meshes.Surface>;
 
 export class MapGenerator {
-  private width: number;
-  private depth: number;
+  public width: number;
+  public depth: number;
   public subdivisions: number;
 
   private readonly shape: meshes.Geometry<typeof meshes.Surface>;

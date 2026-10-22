@@ -1,7 +1,9 @@
 import { camera, lighting, materials, meshPool, passes, shading } from "@typegpu/kit";
 import { meshes } from "@typegpu/kit/geometry";
-import { d, std, type TgpuCommandEncoder, type TgpuRenderPipeline, type TgpuRoot } from "typegpu";
-import { Fragment, Vertex } from "./static";
+import { d, type TgpuCommandEncoder, type TgpuRenderPipeline, type TgpuRoot } from "typegpu";
+import { Fragment, gravityMultiplier, Vertex } from "./static";
+import { CollisionObject, type CollisionSystem } from "./collision";
+import { MapGenerator } from "./map";
 
 export class Car {
     public position: d.v3f;
@@ -22,8 +24,11 @@ export class Car {
     private steeringAngle: number;
     private gripPower: number;
 
-    constructor(root: TgpuRoot, position: d.v3f, forward: d.v3f, velocity: d.v3f, mass: number, dimensions: d.v3f) {
-        this.position = position;
+    private collisionObject: CollisionObject;
+
+    constructor(root: TgpuRoot, collisionSystem: CollisionSystem, position: d.v3f, forward: d.v3f, velocity: d.v3f, mass: number, dimensions: d.v3f) {
+        "use gpu";
+        this.position = d.vec3f(position.x, position.y + dimensions.y / 2, position.z);
         this.yaw = Math.atan2(forward.x, forward.z);
         this.rotation = rotationMatrix(this.yaw);
         this.velocity = velocity;
@@ -33,12 +38,14 @@ export class Car {
         this.shape = meshes.box({ width: dimensions.x, height: dimensions.y, depth: dimensions.z });
         this.mesh = null;
 
-        this.positionUniform = root.createUniform(d.vec3f, position);
+        this.positionUniform = root.createUniform(d.vec3f, this.position);
         this.rotationUniform = root.createUniform(d.mat4x4f, this.rotation);
         this.drifts = false;
         this.steeringAngle = 0;
         this.steeringAngleMultiplier = 0;
         this.gripPower = 0;
+
+        this.collisionObject = collisionSystem.register(this.position, this.dimensions);
     }
 
     public addToPool(pool: meshPool.MeshPool<{}>, encoder: TgpuCommandEncoder) {
@@ -47,8 +54,53 @@ export class Car {
     }
 
     public update(deltaTime: number) {
-        this.applyForce(d.vec3f(0, -9.81 * this.mass, 0), deltaTime);
+        this.applyForce(d.vec3f(0, -gravityMultiplier * this.mass, 0), deltaTime);
 
+        const collisionInfo = this.collisionObject.checkCollision();
+        if(collisionInfo.ground !== null) {
+            const groundHeight = collisionInfo.ground;
+            if(this.position.y <= groundHeight + this.dimensions.y / 2) {
+                this.position = d.vec3f(this.position.x, groundHeight + this.dimensions.y / 2, this.position.z);
+                this.velocity = d.vec3f(this.velocity.x, 0, this.velocity.z);
+            }
+        }
+
+        if(collisionInfo.objects !== null) {
+            for(const obj of collisionInfo.objects) {
+                const objAABB = obj.AABB;
+                const carAABB = this.collisionObject.AABB;
+
+                const overlapX = Math.max(0, Math.min(carAABB.max.x, objAABB.max.x) - Math.max(carAABB.min.x, objAABB.min.x));
+                const overlapY = Math.max(0, Math.min(carAABB.max.y, objAABB.max.y) - Math.max(carAABB.min.y, objAABB.min.y));
+                const overlapZ = Math.max(0, Math.min(carAABB.max.z, objAABB.max.z) - Math.max(carAABB.min.z, objAABB.min.z));
+
+                if(overlapX > 0 && overlapY > 0 && overlapZ > 0) {
+                    if(overlapY <= overlapX && overlapY <= overlapZ) {
+                        if(this.position.y > obj.position.y) {
+                            this.position = d.vec3f(this.position.x, objAABB.max.y + this.dimensions.y / 2, this.position.z);
+                            this.velocity = d.vec3f(this.velocity.x, 0, this.velocity.z);
+                        } else {
+                            this.position = d.vec3f(this.position.x, objAABB.min.y - this.dimensions.y / 2, this.position.z);
+                            this.velocity = d.vec3f(this.velocity.x, 0, this.velocity.z);
+                        }
+                    } else if(overlapX <= overlapY && overlapX <= overlapZ) {
+                        if(this.position.x > obj.position.x) {
+                            this.position = d.vec3f(objAABB.max.x + this.dimensions.x / 2, this.position.y, this.position.z);
+                        } else {
+                            this.position = d.vec3f(objAABB.min.x - this.dimensions.x / 2, this.position.y, this.position.z);
+                        }
+                        this.velocity = d.vec3f(0, this.velocity.y, this.velocity.z);
+                    } else {
+                        if(this.position.z > obj.position.z) {
+                            this.position = d.vec3f(this.position.x, this.position.y, objAABB.max.z + this.dimensions.z / 2);
+                        } else {
+                            this.position = d.vec3f(this.position.x, this.position.y, objAABB.min.z - this.dimensions.z / 2);
+                        }
+                        this.velocity = d.vec3f(this.velocity.x, this.velocity.y, 0);
+                    }
+                }
+            }
+        }
         const forward = this.getForward();
         const forwardSpeed = this.velocity.x * forward.x + this.velocity.z * forward.z;
         const forwardVelocity = d.vec3f(
@@ -61,8 +113,13 @@ export class Car {
             0,
             this.velocity.z - forwardVelocity.z,
         );
-        const speed = std.length(this.velocity);
-        this.gripPower = std.clamp(this.gripPower + (this.drifts ? 1 : -1) * deltaTime, 0.65, 0.98);
+        const speed = Math.sqrt(
+            this.velocity.x ** 2 + this.velocity.y ** 2 + this.velocity.z ** 2,
+        );
+        this.gripPower = Math.min(
+            0.98,
+            Math.max(0.65, this.gripPower + (this.drifts ? 1 : -1) * deltaTime),
+        );
         const sidewaysGrip = Math.pow(this.gripPower, deltaTime * 60);
         const rollingFriction = Math.pow(0.98, deltaTime * 60);
 
@@ -71,18 +128,18 @@ export class Car {
             forwardVelocity.y,
             (forwardVelocity.z + sidewaysVelocity.z * sidewaysGrip) * rollingFriction,
         );
+
         this.position = d.vec3f(
             this.position.x + this.velocity.x * deltaTime,
             this.position.y + this.velocity.y * deltaTime,
             this.position.z + this.velocity.z * deltaTime,
         );
 
-        if (this.collisionCheck()) {
-            this.position.y = this.dimensions.y / 2;
-            this.velocity.y = 0;
-        }
-
-        this.steeringAngleMultiplier = std.clamp(this.steeringAngleMultiplier + (this.drifts ? 1 : -1) * deltaTime, 0, 0.5);
+        this.collisionObject.update(this.position, this.dimensions);
+        this.steeringAngleMultiplier = Math.min(
+            0.5,
+            Math.max(0, this.steeringAngleMultiplier + (this.drifts ? 1 : -1) * deltaTime),
+        );
         this.steeringAngle = speed <= 0.1  ? 0: (1.5 / (speed + (1/2)) + this.steeringAngleMultiplier);
 
         this.positionUniform.write(this.position);
@@ -124,11 +181,6 @@ export class Car {
 
     public setDrifts(drifts: boolean) {
         this.drifts = drifts;
-    }
-
-    public collisionCheck()
-    {
-        return (this.position.y - this.dimensions.y / 2) < 0;
     }
 
     public draw(scene: passes.Description<{

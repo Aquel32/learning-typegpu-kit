@@ -13,3 +13,5 @@ export const RoadEdge = d.struct({
     controlPoint1: d.vec2f,
     controlPoint2: d.vec2f,
 });
+
+export const gravityMultiplier = d.f32(1.0);

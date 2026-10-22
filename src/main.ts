@@ -21,6 +21,7 @@ import { CarManager } from "./carManager";
 import { Skybox } from "./skybox";
 import { TreeGenerator } from "./trees";
 import { TownsGenerator } from "./towns";
+import { CollisionSystem } from "./collision";
 
 const root = await tgpu.init();
 
@@ -44,6 +45,7 @@ const MAP_HEIGHT = 64;
 const NODE_COUNT = 8;
 
 const mapGenerator = new MapGenerator(MAP_WIDTH, MAP_HEIGHT, 70);
+const collisionSystem = new CollisionSystem(root, mapGenerator, 10);
 const roadGenerator = new RoadGenerator(root, mapGenerator, MAP_WIDTH, MAP_HEIGHT, NODE_COUNT, d.vec3f(0,0.01,0));
 
 const pool = meshPool.create(root, { capacity: 64 });
@@ -62,9 +64,9 @@ const screen = targets.create(root, surface, {
 });
 
 const carManager = new CarManager(pool, encoder);
-const player = new Player(root, carManager, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.1, 0.1, 0.2));
+const player = new Player(root, collisionSystem, carManager, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.1, 0.1, 0.2));
 
-const treeGenerator = new TreeGenerator(root, pool, mapGenerator, MAP_WIDTH, MAP_HEIGHT, 10000);
+const treeGenerator = new TreeGenerator(root, pool, mapGenerator, collisionSystem, MAP_WIDTH, MAP_HEIGHT, 10000);
 treeGenerator.addToPool(pool, encoder);
 
 const townsGenerator = new TownsGenerator(root, pool, mapGenerator, MAP_WIDTH, MAP_HEIGHT, 3, 5, 0);
