@@ -1,5 +1,6 @@
 import { d, type TgpuRoot } from "typegpu";
 import type { MapGenerator } from "./map";
+import { CHUNK_SIZE } from "./static";
 
 export type CollisionAABB = {
     min: d.v3f;
@@ -52,13 +53,11 @@ export class CollisionObject {
 
 export class CollisionSystem {
     private registry: CollisionObject[];
-    private chunkSize: number;
     private chunks: Map<string, CollisionObject[]>;
     private mapGenerator: MapGenerator;
 
-    constructor(root: TgpuRoot, mapGenerator: MapGenerator, chunkSize: number) {
+    constructor(root: TgpuRoot, mapGenerator: MapGenerator) {
         this.registry = [];
-        this.chunkSize = chunkSize;
         this.chunks = new Map();
 
         this.mapGenerator = mapGenerator;
@@ -152,8 +151,8 @@ export class CollisionSystem {
     }
 
     private getChunkIndex(position: d.v3f): d.v2f {
-        const x = Math.floor(position.x / this.chunkSize);
-        const z = Math.floor(position.z / this.chunkSize);
+        const x = Math.floor(position.x / CHUNK_SIZE);
+        const z = Math.floor(position.z / CHUNK_SIZE);
         return d.vec2f(x, z);
     }
 

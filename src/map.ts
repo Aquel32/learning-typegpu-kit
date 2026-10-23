@@ -1,7 +1,7 @@
-import { camera, materials, meshPool, shading } from "@typegpu/kit";
+import { camera, lighting, materials, meshPool, passes, shading } from "@typegpu/kit";
 import { meshes } from "@typegpu/kit/geometry";
 import { d, std, tgpu, type TgpuCommandEncoder, type TgpuRoot } from "typegpu";
-import { Fragment, Vertex } from "./static";
+import { Fragment, MAP_HEIGHT, MAP_SUBDIVISIONS, MAP_WIDTH, Vertex } from "./static";
 import { perlin } from "./perlin";
 import { perlin2d } from "@typegpu/noise";
 
@@ -37,25 +37,20 @@ const heightAt = (u: number, v: number) => {
 type MapVertex = d.Infer<typeof meshes.Surface>;
 
 export class MapGenerator {
-  public width: number;
-  public depth: number;
-  public subdivisions: number;
-
   private readonly shape: meshes.Geometry<typeof meshes.Surface>;
   public mesh: meshPool.Mesh | null;
   public heightMap: Map<string, number>;
+  private pool: meshPool.MeshPool<{}>;
 
-  constructor(width: number, depth: number, subdivisions: number) {
-    this.width = width;
-    this.depth = depth;
-    this.subdivisions = subdivisions;
+  constructor(root: TgpuRoot, pool: meshPool.MeshPool<{}>) {
+    this.pool = pool;
 
     this.heightMap = new Map();
     const vertexData: MapVertex[] = this.generateVertices();
-    for (let x = -Math.floor(width / 2); x < Math.ceil(width / 2); x++) {
-      for (let z = -Math.floor(depth / 2); z < Math.ceil(depth / 2); z++) {
-        const u = (x + width / 2) / width;
-        const v = (z + depth / 2) / depth;
+    for (let x = -Math.floor(MAP_WIDTH / 2); x < Math.ceil(MAP_WIDTH / 2); x++) {
+      for (let z = -Math.floor(MAP_HEIGHT / 2); z < Math.ceil(MAP_HEIGHT / 2); z++) {
+        const u = (x + MAP_WIDTH / 2) / MAP_WIDTH;
+        const v = (z + MAP_HEIGHT / 2) / MAP_HEIGHT;
         this.heightMap.set(`${x},${z}`, heightAt(u, v));
       }
     }
@@ -111,17 +106,17 @@ export class MapGenerator {
 
   private generateVertices() {
     const vertexData: MapVertex[] = [];
-    for (let i = 0; i < this.subdivisions; i++) {
-      for (let j = 0; j < this.subdivisions; j++) {
-        const u0 = i / this.subdivisions;
-        const v0 = j / this.subdivisions;
-        const u1 = (i + 1) / this.subdivisions;
-        const v1 = (j + 1) / this.subdivisions;
+    for (let i = 0; i < MAP_SUBDIVISIONS; i++) {
+      for (let j = 0; j < MAP_SUBDIVISIONS; j++) {
+        const u0 = i / MAP_SUBDIVISIONS;
+        const v0 = j / MAP_SUBDIVISIONS;
+        const u1 = (i + 1) / MAP_SUBDIVISIONS;
+        const v1 = (j + 1) / MAP_SUBDIVISIONS;
 
-        const p00 = d.vec3f((u0 - 0.5) * this.width, heightAt(u0, v0), (v0 - 0.5) * this.depth);
-        const p10 = d.vec3f((u1 - 0.5) * this.width, heightAt(u1, v0), (v0 - 0.5) * this.depth);
-        const p01 = d.vec3f((u0 - 0.5) * this.width, heightAt(u0, v1), (v1 - 0.5) * this.depth);
-        const p11 = d.vec3f((u1 - 0.5) * this.width, heightAt(u1, v1), (v1 - 0.5) * this.depth);
+        const p00 = d.vec3f((u0 - 0.5) * MAP_WIDTH, heightAt(u0, v0), (v0 - 0.5) * MAP_HEIGHT);
+        const p10 = d.vec3f((u1 - 0.5) * MAP_WIDTH, heightAt(u1, v0), (v0 - 0.5) * MAP_HEIGHT);
+        const p01 = d.vec3f((u0 - 0.5) * MAP_WIDTH, heightAt(u0, v1), (v1 - 0.5) * MAP_HEIGHT);
+        const p11 = d.vec3f((u1 - 0.5) * MAP_WIDTH, heightAt(u1, v1), (v1 - 0.5) * MAP_HEIGHT);
 
         const n00 = std.normalize(d.vec3f(0, 1, 0));
         const n10 = std.normalize(d.vec3f(0, 1, 0));
@@ -149,6 +144,50 @@ export class MapGenerator {
   public addToPool(pool: meshPool.MeshPool<{}>, encoder: TgpuCommandEncoder) {
     this.mesh = pool.add(this.shape, encoder);
     return this.mesh;
+  }
+
+  public draw(scene: passes.Description<{
+    readonly hdr: typeof passes.color;
+    readonly depth: typeof passes.depth;
+    }>,
+    light: lighting.Lighting)
+  {
+    
+    return scene.add({
+      Vertex: Vertex,
+      inject: light.inject,
+      at: this.at,
+      surfaceOf: this.surfaceOf,
+      color: passes.shaded,
+      draw: (pipeline) =>
+        pipeline
+          .withIndexBuffer(this.pool.indices)
+          .drawIndexed(
+            this.mesh!.indexCount,
+            1,
+            this.mesh!.firstIndex,
+            this.mesh!.baseVertex,
+          ),
+    });
+  }
+
+  public cast(shadow: lighting.Shadow, pool: meshPool.MeshPool<{}>) {
+  {
+    return shadow.add({
+      Vertex: Vertex,
+      inject: () => pool.inject(),
+      at: this.at,
+      draw: (pipeline) =>
+        pipeline
+          .withIndexBuffer(pool.indices)
+          .drawIndexed(
+            this.mesh!.indexCount,
+            1,
+            this.mesh!.firstIndex,
+            this.mesh!.baseVertex,
+          ),
+        });
+    }
   }
 
   public at = (vertexIndex: number, _instanceIndex: number) => {

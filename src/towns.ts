@@ -2,7 +2,7 @@ import { camera, instances, lighting, materials, meshPool, passes, shading } fro
 import type { MapGenerator } from "./map";
 import { d, type TgpuCommandEncoder, type TgpuRenderPipeline, type TgpuRoot } from "typegpu";
 import { meshes } from "@typegpu/kit/geometry";
-import { Fragment, Vertex } from "./static";
+import { Fragment, MAP_HEIGHT, MAP_WIDTH, Vertex } from "./static";
 
 type Building = {
     position: d.v3f;
@@ -21,23 +21,23 @@ export class TownsGenerator{
     private things;
     private buildings: Building[];
 
-    constructor(root: TgpuRoot, pool: meshPool.MeshPool<{}>, mapGenerator: MapGenerator, mapWidth: number, mapHeight: number, towns: number = 3, buildingsPerTown: number = 5, loneBuildings: number = 5) {
+    constructor(root: TgpuRoot, pool: meshPool.MeshPool<{}>, mapGenerator: MapGenerator, towns: number = 3, buildingsPerTown: number = 5, loneBuildings: number = 5) {
         this.mapGenerator = mapGenerator;
         this.things = instances.create(root, pool, {capacity: towns * buildingsPerTown + loneBuildings});
         this.buildings = [];
 
         let townsPlaced = 0;
         while(townsPlaced < towns) {
-            let townCenterX = Math.random() * mapWidth - mapWidth / 2;
-            let townCenterZ = Math.random() * mapHeight - mapHeight / 2;
-            let townCenterHeight = this.heightAt(townCenterX, townCenterZ, mapWidth, mapHeight);
+            let townCenterX = Math.random() * MAP_WIDTH - MAP_WIDTH / 2;
+            let townCenterZ = Math.random() * MAP_HEIGHT - MAP_HEIGHT / 2;
+            let townCenterHeight = this.heightAt(townCenterX, townCenterZ, MAP_WIDTH, MAP_HEIGHT);
             if(Math.abs(townCenterHeight) < 0.05) {
                 for(let i = 0; i < buildingsPerTown; i++) {
                     let offsetX = (Math.random() - 0.5) * 10;
                     let offsetZ = (Math.random() - 0.5) * 10;
                     let buildingX = townCenterX + offsetX;
                     let buildingZ = townCenterZ + offsetZ;
-                    let buildingHeight = this.heightAt(buildingX, buildingZ, mapWidth, mapHeight);
+                    let buildingHeight = this.heightAt(buildingX, buildingZ, MAP_WIDTH, MAP_HEIGHT);
                     if(Math.abs(buildingHeight) < 0.05) {
                         this.buildings.push(this.createBuilding(buildingX, buildingZ, buildingHeight));
                     }
@@ -48,9 +48,9 @@ export class TownsGenerator{
 
         let loneBuildingsPlaced = 0;
         while(loneBuildingsPlaced < loneBuildings) {
-            let buildingX = Math.random() * mapWidth - mapWidth / 2;
-            let buildingZ = Math.random() * mapHeight - mapHeight / 2;
-            let buildingHeight = this.heightAt(buildingX, buildingZ, mapWidth, mapHeight);
+            let buildingX = Math.random() * MAP_WIDTH - MAP_WIDTH / 2;
+            let buildingZ = Math.random() * MAP_HEIGHT - MAP_HEIGHT / 2;
+            let buildingHeight = this.heightAt(buildingX, buildingZ, MAP_WIDTH, MAP_HEIGHT);
             if(Math.abs(buildingHeight) < 0.05) {
                 this.buildings.push(this.createBuilding(buildingX, buildingZ, buildingHeight));
                 loneBuildingsPlaced++;

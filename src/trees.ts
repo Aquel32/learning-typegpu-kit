@@ -1,35 +1,36 @@
-import { camera, instances, lighting, materials, meshPool, passes, shading } from "@typegpu/kit";
+import { camera, gltf, instances, lighting, materials, meshPool, passes, shading } from "@typegpu/kit";
 import type { MapGenerator } from "./map";
 import { d, type TgpuCommandEncoder, type TgpuRenderPipeline, type TgpuRoot } from "typegpu";
 import { meshes } from "@typegpu/kit/geometry";
-import { Fragment, Vertex } from "./static";
+import { Fragment, MAP_HEIGHT, MAP_WIDTH, Vertex } from "./static";
 import type { CollisionSystem } from "./collision";
 
 export class TreeGenerator{
-    public shape;
-    public mesh: meshPool.Mesh | null;
     private mapGenerator: MapGenerator;
     private things;
     private treePositions: d.v3f[];
 
     private treeRadius: number = 0.03;
     private treeHeight: number = 0.3;
-    private treeRadialSegments: number = 6;
-    private treeColor: d.v3f = d.vec3f(115, 70, 31).div(255);
-    private treeMaterial;
 
-    constructor(root: TgpuRoot, pool: meshPool.MeshPool<{}>, mapGenerator: MapGenerator, collisionSystem: CollisionSystem, mapWidth: number, mapHeight: number, trees: number = 100) {
-        this.shape = meshes.cylinder({ radius: this.treeRadius, height: this.treeHeight, radialSegments: this.treeRadialSegments });
-        this.mesh = null;
+    private models: meshPool.Model[];
+    private modelNames = [
+        "tree_oak.glb",
+        "tree_fat.glb",
+        "tree_detailed.glb",
+        "tree_pineDefaultA.glb"
+    ];
+
+    constructor(root: TgpuRoot, pool: meshPool.MeshPool<{}>, mapGenerator: MapGenerator, collisionSystem: CollisionSystem, trees: number = 100) {
         this.mapGenerator = mapGenerator;
-        this.things = instances.create(root, pool, {capacity: trees});
+        this.things = instances.create(root, pool, {capacity: trees * 2 * this.modelNames.length});
         this.treePositions = [];
-        this.treeMaterial = materials.matte(this.treeColor);
+        this.models = [];
 
         while(this.treePositions.length < trees) {
-            const x = Math.random() * mapWidth - mapWidth / 2;
-            const z = Math.random() * mapHeight - mapHeight / 2;
-            const height = this.heightAt(x, z, mapWidth, mapHeight);
+            const x = Math.random() * MAP_WIDTH - MAP_WIDTH / 2;
+            const z = Math.random() * MAP_HEIGHT - MAP_HEIGHT / 2;
+            const height = this.heightAt(x, z, MAP_WIDTH, MAP_HEIGHT);
             if(Math.abs(height) > 0.05) {
                 this.treePositions.push(d.vec3f(x, height + this.treeHeight / 2, z));
                 collisionSystem.register(
@@ -64,13 +65,22 @@ export class TreeGenerator{
         return h0 + (h1 - h0) * tz;
     }
 
-    public addToPool(pool: meshPool.MeshPool<{}>, encoder: TgpuCommandEncoder) {
-        this.mesh = pool.add(this.shape, encoder);
+    public async addToPool(pool: meshPool.MeshPool<{}>) {
+        for (const modelName of this.modelNames) {
+            const response = await fetch(`/models/trees/${modelName}`);
+            const data = gltf.read(await response.arrayBuffer());
+            const model = pool.add(data);
+            await model.ready;
+            this.models.push(model);
+        }
+
         for (const position of this.treePositions) {
-            this.things.add(this.mesh, {position: position, ...this.treeMaterial});
+            const randomModelIndex = Math.floor(Math.random() * this.models.length);
+            const model = this.models[randomModelIndex];
+            this.things.add(model, {position: position});
         }
         this.things.flush();
-        return this.mesh;
+        return this.things;
     }
 
     public draw(scene: passes.Description<{

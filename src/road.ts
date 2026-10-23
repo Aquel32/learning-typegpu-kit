@@ -1,7 +1,7 @@
-import { camera, materials, meshPool, shading } from "@typegpu/kit";
+import { camera, lighting, materials, meshPool, passes, shading } from "@typegpu/kit";
 import { meshes } from "@typegpu/kit/geometry";
 import { d, std, tgpu, type TgpuCommandEncoder, type TgpuRoot, type TgpuUniform } from "typegpu";
-import { Fragment, RoadNode, Vertex, RoadEdge } from "./static";
+import { Fragment, RoadNode, Vertex, RoadEdge, MAP_HEIGHT, MAP_WIDTH } from "./static";
 import type { MapGenerator } from "./map";
 
 type RoadVertex = d.Infer<typeof meshes.Surface>;
@@ -12,43 +12,21 @@ export class RoadGenerator {
     public mesh: meshPool.Mesh | null;
     private readonly shape: meshes.Geometry<typeof meshes.Surface>;
     private mapGenerator: MapGenerator;
-    private readonly mapWidth: number;
-    private readonly mapHeight: number;
-
-    public at = (vertexIndex: number, _instanceIndex: number) => {
-        "use gpu";
-        const vertex = meshPool.vertexAt(vertexIndex);
-        const position = vertex.position + this.offsetUniform.$;
-        return Vertex({
-            position: camera.$.viewProjection * d.vec4f(position, 1),
-            world: position,
-            normal: vertex.normal,
-        });
-    };
-
-    public surfaceOf = (vertex: d.Infer<typeof Vertex>) => {
-    "use gpu";
-        const point = shading.point(vertex.world, vertex.normal);
-        const material = materials.matte(d.vec3f(0.1, 0.1, 0.1));
-        return Fragment({ color: d.vec4f(shading.shade(material, point), 1) });
-    };;
-
     private offset: d.v3f;
     private offsetUniform: TgpuUniform<d.Vec3f>;
+    private pool: meshPool.MeshPool<{}>;
 
-    constructor(root: TgpuRoot, map: MapGenerator, mapWidth: number, mapHeight: number, nodeCount: number, offset: d.v3f) {
+    constructor(root: TgpuRoot, pool: meshPool.MeshPool<{}>, map: MapGenerator, nodeCount: number, offset: d.v3f) {
         // pick a few random points on the map (nodes)
         // connect the nodes with roads (RoadEdges) that contain bezier curves properties
         // generate a mesh for each road segment based on the bezier curve properties    
 
         this.offset = offset;
         this.offsetUniform = root.createUniform(d.vec3f, offset);
-        this.mapWidth = mapWidth;
-        this.mapHeight = mapHeight;
 
         this.mapGenerator = map;
 
-        this.nodes = this.getNodes(mapWidth, mapHeight, nodeCount);
+        this.nodes = this.getNodes(MAP_WIDTH, MAP_HEIGHT, nodeCount);
         this.edges = this.getEdges();
 
         const vertexData: RoadVertex[] = [];
@@ -70,11 +48,70 @@ export class RoadGenerator {
             },
         };
         this.mesh = null;
+        this.pool = pool;
     }
 
     public addToPool(pool: meshPool.MeshPool<{}>, encoder: TgpuCommandEncoder) {
         this.mesh = pool.add(this.shape, encoder);
         return this.mesh;
+    }
+
+    public at = (vertexIndex: number, _instanceIndex: number) => {
+        "use gpu";
+        const vertex = meshPool.vertexAt(vertexIndex);
+        const position = vertex.position + this.offsetUniform.$;
+        return Vertex({
+            position: camera.$.viewProjection * d.vec4f(position, 1),
+            world: position,
+            normal: vertex.normal,
+        });
+    };
+
+    public surfaceOf = (vertex: d.Infer<typeof Vertex>) => {
+    "use gpu";
+        const point = shading.point(vertex.world, vertex.normal);
+        const material = materials.matte(d.vec3f(0.1, 0.1, 0.1));
+        return Fragment({ color: d.vec4f(shading.shade(material, point), 1) });
+    };;
+
+    public draw(scene: passes.Description<{
+        readonly hdr: typeof passes.color;
+        readonly depth: typeof passes.depth;
+    }>, light: lighting.Lighting)
+    {
+        return scene.add({
+          Vertex: Vertex,
+          at: this.at,
+          surfaceOf: this.surfaceOf,
+          color: passes.shaded,
+          draw: (pipeline) =>
+            pipeline
+              .withIndexBuffer(this.pool.indices)
+              .drawIndexed(
+                this.mesh!.indexCount,
+                1,
+                this.mesh!.firstIndex,
+                this.mesh!.baseVertex,
+              ),
+        });
+    }
+    
+    public cast(shadow: lighting.Shadow)
+    {
+        return shadow.add({
+        Vertex: Vertex,
+        inject: () => this.pool.inject(),
+        at: this.at,
+        draw: (pipeline) =>
+            pipeline
+            .withIndexBuffer(this.pool.indices)
+            .drawIndexed(
+                this.mesh!.indexCount,
+                1,
+                this.mesh!.firstIndex,
+                this.mesh!.baseVertex,
+            ),
+        });
     }
 
     public getStartPosition() {
@@ -336,8 +373,8 @@ export class RoadGenerator {
             const path = this.findPathBetweenNodes(
                 this.nodes[i],
                 this.nodes[i + 1],
-                this.mapWidth,
-                this.mapHeight,
+                MAP_WIDTH,
+                MAP_HEIGHT,
             );
 
             if (!path) {
