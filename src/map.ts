@@ -1,6 +1,6 @@
-import { camera, lighting, materials, meshPool, passes, shading } from "@typegpu/kit";
+import { camera, lighting, materials, meshPool, passes, shading, targets } from "@typegpu/kit";
 import { meshes } from "@typegpu/kit/geometry";
-import { d, std, tgpu, type TgpuCommandEncoder, type TgpuRoot } from "typegpu";
+import { common, d, std, tgpu, type TgpuCommandEncoder, type TgpuRoot } from "typegpu";
 import { Fragment, MAP_HEIGHT, MAP_SUBDIVISIONS, MAP_WIDTH, Vertex } from "./static";
 import { perlin } from "./perlin";
 import { perlin2d } from "@typegpu/noise";
@@ -11,9 +11,14 @@ const terrainScale = 3.5;
 const terrainHeight = 2.5;
 
 const heightAt = (u: number, v: number) => {
+    "use gpu";
+
   const point = d.vec2f(u * terrainScale, v * terrainScale);
-  const broadNoise = perlin.get(point);
-  const detailNoise = perlin.get(d.vec2f(point.x * 2, point.y * 2)) * 0.35;
+//   const broadNoise = perlin.get(point);
+//   const detailNoise = perlin.get(d.vec2f(point.x * 2, point.y * 2)) * 0.35;
+
+    const broadNoise = perlin2d.sample(point);
+    const detailNoise = perlin2d.sample(d.vec2f(point.x * 2, point.y * 2)) * 0.35;
   const perlinValue = broadNoise * 0.8 + detailNoise;
   const distanceFromFlat = Math.abs(perlinValue);
 
@@ -39,107 +44,87 @@ type MapVertex = d.Infer<typeof meshes.Surface>;
 export class MapGenerator {
   private readonly shape: meshes.Geometry<typeof meshes.Surface>;
   public mesh: meshPool.Mesh | null;
-  public heightMap: Map<string, number>;
+  private heightMap: Map<string, number>;
   private pool: meshPool.MeshPool<{}>;
 
   constructor(root: TgpuRoot, pool: meshPool.MeshPool<{}>) {
     this.pool = pool;
 
     this.heightMap = new Map();
-    const vertexData: MapVertex[] = this.generateVertices();
-    for (let x = -Math.floor(MAP_WIDTH / 2); x < Math.ceil(MAP_WIDTH / 2); x++) {
-      for (let z = -Math.floor(MAP_HEIGHT / 2); z < Math.ceil(MAP_HEIGHT / 2); z++) {
-        const u = (x + MAP_WIDTH / 2) / MAP_WIDTH;
-        const v = (z + MAP_HEIGHT / 2) / MAP_HEIGHT;
-        this.heightMap.set(`${x},${z}`, heightAt(u, v));
-      }
+
+    const size = { width: 1024, height: 1024 };
+    const target = targets.create(root, size, {
+        perlin: { format: 'r8unorm', layers: 1, sampled: true },
+    });
+    const view = target.textures.perlin.createView();
+    const sampler = root.createSampler({
+        magFilter: 'linear',
+        minFilter: 'linear',
+    });
+
+    const encoder = root["~unstable"].createCommandEncoder();
+    const pass = encoder.beginRenderPass({});
+
+    const pipeline = root.createRenderPipeline({
+        vertex: common.fullScreenTriangle,
+        fragment: ({ uv }) => {
+            "use gpu";
+
+            return d.vec4f(1,1,1,1);
+        },
+    });
+    pipeline.withColorAttachment({view:target.textures.perlin}).draw(3)
+    encoder.submit();
+
+
+    this.mesh = null;
+    
+    function sampleHeight(u: number, v: number): number {
+        "use gpu";
+        const height = std.textureSample(view.$, sampler.$, d.vec2f(u, v)).x;
+        return height;
     }
 
-    const vertices = tgpu.const(d.arrayOf(meshes.Surface), vertexData);
-    this.shape = {
-            schema: meshes.Surface,
-            topology: "triangle-list",
-            vertexCount: vertexData.length,
-            vertexAt: (index: number) => {
-                "use gpu";
-                return meshes.Surface(vertices.$[index]!);
-            },
-        };
-    this.mesh = null;
-
-    // this.shape = meshes.parametric(
-    //   {
-    //     at: (u, v) => {
-    //       "use gpu";
-    //       return d.vec3f((u - 0.5) * width, heightAt(u, v), (v - 0.5) * depth);
-    //     },
-    //     normalAt: (u, v) => {
-    //       "use gpu";
-    //       const step = 0.001;
-    //       const left = heightAt(std.max(u - step, 0), v);
-    //       const right = heightAt(std.min(u + step, 1), v);
-    //       const back = heightAt(u, std.max(v - step, 0));
-    //       const front = heightAt(u, std.min(v + step, 1));
-    //       const slopeX = (right - left) / (2 * step);
-    //       const slopeZ = (front - back) / (2 * step);
+    this.shape = meshes.parametric(
+      {
+        at: (u, v) => {
+          "use gpu";
+          const height = sampleHeight(u, v);
+        //   const data = new Uint8Array(4);
+        //   target.textures.perlin.write(data, {origin: [1,1], size: [1,1]});
+          return d.vec3f((u - 0.5) * MAP_WIDTH, height, (v - 0.5) * MAP_HEIGHT);
+        },
+        normalAt: (u, v) => {
+          "use gpu";
+          const step = 0.001;
+          const left = sampleHeight(std.max(u - step, 0), v);
+          const right = sampleHeight(std.min(u + step, 1), v);
+          const back = sampleHeight(u, std.max(v - step, 0));
+          const front = sampleHeight(u, std.min(v + step, 1));
+          const slopeX = (right - left) / (2 * step);
+          const slopeZ = (front - back) / (2 * step);
         
-    //       const normal = std.normalize(d.vec3f(-slopeX, 1, -slopeZ));
-    //       return normal;
-    //     },
-    //   },
-    //   { cols: subdivisions, rows: subdivisions },
-    // );
-    // // this.shape = meshes.plane({ width, depth, widthSegments: subdivisions, depthSegments: subdivisions });
+          const normal = std.normalize(d.vec3f(-slopeX, 1, -slopeZ));
+          return normal;
+        },
+      },
+      { cols: MAP_WIDTH * MAP_SUBDIVISIONS, rows: MAP_HEIGHT * MAP_SUBDIVISIONS },
+    );
 
-    // this.mesh = null;
-
-    // this.heightMap = new Map();
-    // for (let i = 0; i <= subdivisions; i++) {
-    //   for (let j = 0; j <= subdivisions; j++) {
-    //     const u = i / subdivisions;
-    //     const v = j / subdivisions;
-    //     const height = 1;
-    //     this.heightMap.set(d.vec2f(u, v), height);
-    //   }
+    // for(let i = 0; i < this.shape.vertexCount; i++) {
+    //     const vertex = this.shape.vertexAt(i);
+    //     const uv = vertex.uv;
+    //     const x = Math.floor(uv.x * MAP_WIDTH - MAP_WIDTH / 2);
+    //     const z = Math.floor(uv.y * MAP_HEIGHT - MAP_HEIGHT / 2);
+    //     this.heightMap.set(`${x},${z}`, vertex.position.y);
     // }
+
+    console.log(this.heightMap);
   }
 
-  private generateVertices() {
-    const vertexData: MapVertex[] = [];
-    for (let i = 0; i < MAP_SUBDIVISIONS; i++) {
-      for (let j = 0; j < MAP_SUBDIVISIONS; j++) {
-        const u0 = i / MAP_SUBDIVISIONS;
-        const v0 = j / MAP_SUBDIVISIONS;
-        const u1 = (i + 1) / MAP_SUBDIVISIONS;
-        const v1 = (j + 1) / MAP_SUBDIVISIONS;
-
-        const p00 = d.vec3f((u0 - 0.5) * MAP_WIDTH, heightAt(u0, v0), (v0 - 0.5) * MAP_HEIGHT);
-        const p10 = d.vec3f((u1 - 0.5) * MAP_WIDTH, heightAt(u1, v0), (v0 - 0.5) * MAP_HEIGHT);
-        const p01 = d.vec3f((u0 - 0.5) * MAP_WIDTH, heightAt(u0, v1), (v1 - 0.5) * MAP_HEIGHT);
-        const p11 = d.vec3f((u1 - 0.5) * MAP_WIDTH, heightAt(u1, v1), (v1 - 0.5) * MAP_HEIGHT);
-
-        const n00 = std.normalize(d.vec3f(0, 1, 0));
-        const n10 = std.normalize(d.vec3f(0, 1, 0));
-        const n01 = std.normalize(d.vec3f(0, 1, 0));
-        const n11 = std.normalize(d.vec3f(0, 1, 0));
-
-        const uv00 = d.vec2f(u0, v0);
-        const uv10 = d.vec2f(u1, v0);
-        const uv01 = d.vec2f(u0, v1);
-        const uv11 = d.vec2f(u1, v1);
-
-        vertexData.push(
-          { position: p00, normal: n00, uv: uv00 },
-          { position: p10, normal: n10, uv: uv10 },
-          { position: p01, normal: n01, uv: uv01 },
-          { position: p10, normal: n10, uv: uv10 },
-          { position: p11, normal: n11, uv: uv11 },
-          { position: p01, normal: n01, uv: uv01 },
-        );
-      }
-    }
-    return vertexData;
-}
+  private getKey(position: d.v2f): string {
+    return `${position.x},${position.y}`;
+  }
 
   public addToPool(pool: meshPool.MeshPool<{}>, encoder: TgpuCommandEncoder) {
     this.mesh = pool.add(this.shape, encoder);
