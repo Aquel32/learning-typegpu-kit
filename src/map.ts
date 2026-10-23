@@ -14,13 +14,11 @@ const heightAt = (u: number, v: number) => {
     "use gpu";
 
   const point = d.vec2f(u * terrainScale, v * terrainScale);
-//   const broadNoise = perlin.get(point);
-//   const detailNoise = perlin.get(d.vec2f(point.x * 2, point.y * 2)) * 0.35;
 
     const broadNoise = perlin2d.sample(point);
     const detailNoise = perlin2d.sample(d.vec2f(point.x * 2, point.y * 2)) * 0.35;
-  const perlinValue = broadNoise * 0.8 + detailNoise;
-  const distanceFromFlat = Math.abs(perlinValue);
+    const perlinValue = broadNoise * 0.8 + detailNoise;
+    const distanceFromFlat = Math.abs(perlinValue);
 
   if (distanceFromFlat <= flatRadius) {
     return 0;
@@ -52,37 +50,32 @@ export class MapGenerator {
 
     this.heightMap = new Map();
 
-    const size = { width: 1024, height: 1024 };
+    const size = { width: 2048, height: 2048 };
     const target = targets.create(root, size, {
         perlin: { format: 'r8unorm', layers: 1, sampled: true },
     });
     const view = target.textures.perlin.createView();
     const sampler = root.createSampler({
-        magFilter: 'linear',
-        minFilter: 'linear',
+        magFilter: 'nearest',
+        minFilter: 'nearest',
     });
-
-    const encoder = root["~unstable"].createCommandEncoder();
-    const pass = encoder.beginRenderPass({});
 
     const pipeline = root.createRenderPipeline({
         vertex: common.fullScreenTriangle,
         fragment: ({ uv }) => {
             "use gpu";
 
-            return d.vec4f(1,1,1,1);
+            return d.vec4f(heightAt(uv.x, uv.y), 0, 0, 1);
         },
+        targets: {format: 'r8unorm'}
     });
     pipeline.withColorAttachment({view:target.textures.perlin}).draw(3)
-    encoder.submit();
-
 
     this.mesh = null;
     
     function sampleHeight(u: number, v: number): number {
         "use gpu";
-        const height = std.textureSample(view.$, sampler.$, d.vec2f(u, v)).x;
-        return height;
+        return std.textureSampleLevel(view.$, sampler.$, d.vec2f(u, v), 0).x;
     }
 
     this.shape = meshes.parametric(
