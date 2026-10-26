@@ -14,27 +14,29 @@ const heightAt = (u: number, v: number) => {
     "use gpu";
 
   const point = d.vec2f(u * terrainScale, v * terrainScale);
+  const perlin = perlin2d.sample(point) * terrainHeight;
+  return perlin;
 
-    const broadNoise = perlin2d.sample(point);
-    const detailNoise = perlin2d.sample(d.vec2f(point.x * 2, point.y * 2)) * 0.35;
-    const perlinValue = broadNoise * 0.8 + detailNoise;
-    const distanceFromFlat = Math.abs(perlinValue);
+//     const broadNoise = perlin2d.sample(point);
+//     const detailNoise = perlin2d.sample(d.vec2f(point.x * 2, point.y * 2)) * 0.35;
+//     const perlinValue = broadNoise * 0.8 + detailNoise;
+//     const distanceFromFlat = Math.abs(perlinValue);
 
-  if (distanceFromFlat <= flatRadius) {
-    return 0;
-  }
+//   if (distanceFromFlat <= flatRadius) {
+//     return 0;
+//   }
 
-  const transition = Math.min(
-    1,
-    Math.max(0, (distanceFromFlat - flatRadius) / flatTransition),
-  );
-  const smoothTransition = transition * transition * transition
-    * (transition * (transition * 6 - 15) + 10);
+//   const transition = Math.min(
+//     1,
+//     Math.max(0, (distanceFromFlat - flatRadius) / flatTransition),
+//   );
+//   const smoothTransition = transition * transition * transition
+//     * (transition * (transition * 6 - 15) + 10);
 
-  return Math.sign(perlinValue)
-    * smoothTransition
-    * distanceFromFlat
-    * terrainHeight;
+//   return Math.sign(perlinValue)
+//     * smoothTransition
+//     * distanceFromFlat
+//     * terrainHeight;
 };
 
 type MapVertex = d.Infer<typeof meshes.Surface>;
@@ -50,7 +52,7 @@ export class MapGenerator {
 
     this.heightMap = new Map();
 
-    const size = { width: 2048, height: 2048 };
+    const size = { width: MAP_WIDTH * MAP_SUBDIVISIONS, height: MAP_WIDTH * MAP_SUBDIVISIONS };
     const target = targets.create(root, size, {
         perlin: { format: 'r8unorm', layers: 1, sampled: true },
     });
@@ -104,15 +106,51 @@ export class MapGenerator {
       { cols: MAP_WIDTH * MAP_SUBDIVISIONS, rows: MAP_HEIGHT * MAP_SUBDIVISIONS },
     );
 
-    // for(let i = 0; i < this.shape.vertexCount; i++) {
-    //     const vertex = this.shape.vertexAt(i);
-    //     const uv = vertex.uv;
-    //     const x = Math.floor(uv.x * MAP_WIDTH - MAP_WIDTH / 2);
-    //     const z = Math.floor(uv.y * MAP_HEIGHT - MAP_HEIGHT / 2);
-    //     this.heightMap.set(`${x},${z}`, vertex.position.y);
-    // }
+    this.loadHeightMap(root, sampleHeight);
+  }
 
-    console.log(this.heightMap);
+  private async loadHeightMap(root: TgpuRoot, sampleHeight: (u: number, v: number) => number) {
+    const heightMapStorage = root.createBuffer(d.arrayOf(d.f32, MAP_WIDTH * MAP_HEIGHT * MAP_SUBDIVISIONS * MAP_SUBDIVISIONS)).$usage("storage", "uniform");
+
+    const fooLayout = tgpu.bindGroupLayout({
+        storage: { storage: d.arrayOf(d.f32), access: "mutable" },
+    });
+    const fooBindGroup = root.createBindGroup(fooLayout, {
+        storage: heightMapStorage,
+    });
+
+    const computePipeline = root.createGuardedComputePipeline((x, y)=>{
+        "use gpu";
+        const u = x / (MAP_WIDTH * MAP_SUBDIVISIONS - 1);
+        const v = y / (MAP_HEIGHT * MAP_SUBDIVISIONS - 1);
+        const height = sampleHeight(u, v);
+        const index = y * (MAP_WIDTH * MAP_SUBDIVISIONS) + x;
+        fooLayout.$.storage[index] = height;
+    })
+    computePipeline.with(fooBindGroup).dispatchThreads(MAP_WIDTH * MAP_SUBDIVISIONS, MAP_HEIGHT * MAP_SUBDIVISIONS);
+
+    const heightMapData = await heightMapStorage.read();
+
+    for(let i = 0; i < heightMapData.length; i++) {
+        const x = i % (MAP_WIDTH * MAP_SUBDIVISIONS);
+        const z = Math.floor(i / (MAP_WIDTH * MAP_SUBDIVISIONS));
+        const height = heightMapData[i];
+        this.heightMap.set(this.getKey(d.vec2f(x, z)), height);
+    }
+  }
+
+  public getHeightAtWorldPosition(position: d.v3f): number {
+    const x = position.x + MAP_WIDTH / 2;
+    const z = position.z + MAP_HEIGHT / 2;
+    const u = x / MAP_WIDTH;
+    const v = z / MAP_HEIGHT;
+    return this.getHeightAtUV(u, v);
+  }
+
+  private getHeightAtUV(u: number, v: number): number {
+    const x = Math.floor(u * (MAP_WIDTH * MAP_SUBDIVISIONS));
+    const z = Math.floor(v * (MAP_HEIGHT * MAP_SUBDIVISIONS));
+    return this.heightMap.get(this.getKey(d.vec2f(x, z))) ?? 0;
   }
 
   private getKey(position: d.v2f): string {

@@ -47,14 +47,14 @@ export class CollisionObject {
     }
 
     public groundHeight() {
-        return this.collisionSystem.groundHeightAt(this.position.x, this.position.z);
+        return this.collisionSystem.mapGenerator.getHeightAtWorldPosition(this.position);
     }
 }
 
 export class CollisionSystem {
     private registry: CollisionObject[];
     private chunks: Map<string, CollisionObject[]>;
-    private mapGenerator: MapGenerator;
+    public mapGenerator: MapGenerator;
 
     constructor(root: TgpuRoot, mapGenerator: MapGenerator) {
         this.registry = [];
@@ -116,32 +116,13 @@ export class CollisionSystem {
             }
         }
 
-        if(this.mapCollisionTest(collisionObject)) {
-            ground = this.groundHeightAt(collisionObject.position.x, collisionObject.position.z);
+        const groundHeight = this.mapGenerator.getHeightAtWorldPosition(collisionObject.position);
+        console.log(groundHeight);
+        if(collisionObject.AABB.min.y <= groundHeight) {
+            ground = groundHeight;
         }
 
         return { ground, objects, isEmpty: objects.length === 0 && ground === null };
-    }
-
-    private mapCollisionTest(collisionObject: CollisionObject): boolean {
-        const groundHeight = this.groundHeightAt(collisionObject.position.x, collisionObject.position.z);
-        return collisionObject.AABB.min.y <= groundHeight;
-    }
-
-    public groundHeightAt(x: number, z: number): number {
-        const x0 = Math.floor(x);
-        const z0 = Math.floor(z);
-        const tx = x - x0;
-        const tz = z - z0;
-        const sample = (sampleX: number, sampleZ: number) =>
-            this.mapGenerator.heightMap.get(`${sampleX},${sampleZ}`) ?? 0;
-        const h00 = sample(x0, z0);
-        const h10 = sample(x0 + 1, z0);
-        const h01 = sample(x0, z0 + 1);
-        const h11 = sample(x0 + 1, z0 + 1);
-        const h0 = h00 + (h10 - h00) * tx;
-        const h1 = h01 + (h11 - h01) * tx;
-        return h0 + (h1 - h0) * tz;
     }
 
     private aabbIntersect(a: CollisionAABB, b: CollisionAABB): boolean {
