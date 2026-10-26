@@ -1,14 +1,17 @@
 import { camera, lighting, materials, meshPool, passes, shading, targets } from "@typegpu/kit";
 import { meshes } from "@typegpu/kit/geometry";
 import { common, d, std, tgpu, type TgpuCommandEncoder, type TgpuRoot } from "typegpu";
-import { Fragment, MAP_HEIGHT, MAP_SUBDIVISIONS, MAP_WIDTH, Vertex } from "./static";
+import { Fragment, HEIGHT_MAP_SCALE, MAP_HEIGHT, MAP_SUBDIVISIONS, MAP_WIDTH, Vertex } from "./static";
 import { perlin } from "./perlin";
 import { perlin2d } from "@typegpu/noise";
 
 const flatRadius = 0.1;
 const flatTransition = 0.16;
 const terrainScale = 3.5;
-const terrainHeight = 2.5;
+const terrainHeight = 5;
+
+const heightMapWidth = MAP_WIDTH * MAP_SUBDIVISIONS * HEIGHT_MAP_SCALE;
+const heightMapHeight = MAP_HEIGHT * MAP_SUBDIVISIONS * HEIGHT_MAP_SCALE;
 
 const heightAt = (u: number, v: number) => {
     "use gpu";
@@ -52,7 +55,7 @@ export class MapGenerator {
 
     this.heightMap = new Map();
 
-    const size = { width: MAP_WIDTH * MAP_SUBDIVISIONS, height: MAP_WIDTH * MAP_SUBDIVISIONS };
+    const size = { width: heightMapWidth, height: heightMapHeight };
     const target = targets.create(root, size, {
         perlin: { format: 'r8unorm', layers: 1, sampled: true },
     });
@@ -110,7 +113,7 @@ export class MapGenerator {
   }
 
   private async loadHeightMap(root: TgpuRoot, sampleHeight: (u: number, v: number) => number) {
-    const heightMapStorage = root.createBuffer(d.arrayOf(d.f32, MAP_WIDTH * MAP_HEIGHT * MAP_SUBDIVISIONS * MAP_SUBDIVISIONS)).$usage("storage", "uniform");
+    const heightMapStorage = root.createBuffer(d.arrayOf(d.f32, heightMapWidth * heightMapHeight)).$usage("storage", "uniform");
 
     const fooLayout = tgpu.bindGroupLayout({
         storage: { storage: d.arrayOf(d.f32), access: "mutable" },
@@ -121,22 +124,24 @@ export class MapGenerator {
 
     const computePipeline = root.createGuardedComputePipeline((x, y)=>{
         "use gpu";
-        const u = x / (MAP_WIDTH * MAP_SUBDIVISIONS - 1);
-        const v = y / (MAP_HEIGHT * MAP_SUBDIVISIONS - 1);
+        const u = x / (heightMapWidth - 1);
+        const v = y / (heightMapHeight - 1);
         const height = sampleHeight(u, v);
-        const index = y * (MAP_WIDTH * MAP_SUBDIVISIONS) + x;
+        const index = y * (heightMapWidth) + x;
         fooLayout.$.storage[index] = height;
     })
-    computePipeline.with(fooBindGroup).dispatchThreads(MAP_WIDTH * MAP_SUBDIVISIONS, MAP_HEIGHT * MAP_SUBDIVISIONS);
+    computePipeline.with(fooBindGroup).dispatchThreads(heightMapWidth, heightMapHeight);
 
     const heightMapData = await heightMapStorage.read();
 
     for(let i = 0; i < heightMapData.length; i++) {
-        const x = i % (MAP_WIDTH * MAP_SUBDIVISIONS);
-        const z = Math.floor(i / (MAP_WIDTH * MAP_SUBDIVISIONS));
+        const x = i % heightMapWidth;
+        const z = Math.floor(i / heightMapWidth);
         const height = heightMapData[i];
         this.heightMap.set(this.getKey(d.vec2f(x, z)), height);
     }
+
+    heightMapStorage.destroy();
   }
 
   public getHeightAtWorldPosition(position: d.v3f): number {
@@ -148,9 +153,34 @@ export class MapGenerator {
   }
 
   private getHeightAtUV(u: number, v: number): number {
-    const x = Math.floor(u * (MAP_WIDTH * MAP_SUBDIVISIONS));
-    const z = Math.floor(v * (MAP_HEIGHT * MAP_SUBDIVISIONS));
-    return this.heightMap.get(this.getKey(d.vec2f(x, z))) ?? 0;
+    const x = Math.floor(u * (heightMapWidth - 1));
+    const z = Math.floor(v * (heightMapHeight - 1));
+
+    const sampleOffsets = [
+        d.vec2f(0, 0),
+        d.vec2f(-1, 0),
+        d.vec2f(1, 0),
+        d.vec2f(0, -1),
+        d.vec2f(0, 1),
+    ];
+
+    let totalHeight = 0;
+    let sampleCount = 0;
+
+    for (const offset of sampleOffsets) {
+        const sampleX = x + offset.x;
+        const sampleZ = z + offset.y;
+
+        if (sampleX >= 0 && sampleX < heightMapWidth &&
+            sampleZ >= 0 && sampleZ < heightMapHeight) {
+                const height = this.heightMap.get(this.getKey(d.vec2f(sampleX, sampleZ)));
+                // console.log(`Height at (${sampleX}, ${sampleZ}): ${height}`);
+                totalHeight += height ?? 0;
+            sampleCount++;
+        }
+    }
+
+    return totalHeight / sampleCount;
   }
 
   private getKey(position: d.v2f): string {
@@ -221,15 +251,16 @@ export class MapGenerator {
     "use gpu";
     const point = shading.point(vertex.world, vertex.normal);
 
-    const topColor = d.vec3f(0.1, 0.5, 0.2);
-    const bottomColor = d.vec3f(0.0, 0.3, 0.1);
-    const blendFactor = std.clamp((point.position.y + 1) / 2, 0, 1);
-    const blendedColor = topColor * blendFactor + bottomColor * (1 - blendFactor);
+    // const topColor = d.vec3f(0.1, 0.5, 0.2);
+    // const bottomColor = d.vec3f(0.0, 0.3, 0.1);
+    // const blendFactor = std.clamp((point.position.y + 1) / 2, 0, 1);
+    // const blendedColor = topColor * blendFactor + bottomColor * (1 - blendFactor);
 
-    const perlinFactor = perlin2d.sample(d.vec2f(point.position.x, point.position.z) * 0.5) * 0.5 + 0.5;
-    const finalBlendFactor = std.clamp(blendFactor * 0.7 + perlinFactor * 0.3, 0, 1);
-    const finalColor = topColor * finalBlendFactor + bottomColor * (1 - finalBlendFactor);
+    // const perlinFactor = perlin2d.sample(d.vec2f(point.position.x, point.position.z) * 0.5) * 0.5 + 0.5;
+    // const finalBlendFactor = std.clamp(blendFactor * 0.7 + perlinFactor * 0.3, 0, 1);
+    // const finalColor = topColor * finalBlendFactor + bottomColor * (1 - finalBlendFactor);
 
+    const finalColor = d.vec3f(0.1, 0.5, 0.2) * 0.7 + d.vec3f(0.0, 0.3, 0.1) * 0.3;
     const material = materials.matte(finalColor);
     return Fragment({ color: d.vec4f(shading.shade(material, point), 1) });
 

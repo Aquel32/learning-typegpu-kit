@@ -54,7 +54,7 @@ const carManager = new CarManager(root, pool);
 // const treeGenerator = new TreeGenerator(root, pool, mapGenerator, collisionSystem, 5000);
 // const townsGenerator = new TownsGenerator(root, pool, mapGenerator, 3, 5, 0);
 // const player = new Player(root, collisionSystem, carManager, surface, canvas, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.1, 0.1, 0.2));
-const player = new Player(root, collisionSystem, carManager, surface, canvas, d.vec3f(0,0,0), d.vec3f(0,0,0), d.vec3f(0, 0, 0), 5, d.vec3f(0.1, 0.1, 0.2));
+const player = new Player(root, collisionSystem, carManager, surface, canvas, d.vec3f(0,0,0), d.vec3f(0,0,0), d.vec3f(0, 0, 0), 5, d.vec3f(0.1, 0.008, 0.2));
 
 // const view = cameras.orbit(root, {
 //   size: surface,
