@@ -7,8 +7,8 @@ import { perlin2d } from "@typegpu/noise";
 
 const flatRadius = 0.1;
 const flatTransition = 0.16;
-const terrainScale = 3.5;
-const terrainHeight = 5;
+const terrainScale = 3;
+const terrainHeight = 2;
 
 const heightMapWidth = MAP_WIDTH * MAP_SUBDIVISIONS * HEIGHT_MAP_SCALE;
 const heightMapHeight = MAP_HEIGHT * MAP_SUBDIVISIONS * HEIGHT_MAP_SCALE;
@@ -16,30 +16,27 @@ const heightMapHeight = MAP_HEIGHT * MAP_SUBDIVISIONS * HEIGHT_MAP_SCALE;
 const heightAt = (u: number, v: number) => {
     "use gpu";
 
-  const point = d.vec2f(u * terrainScale, v * terrainScale);
-  const perlin = perlin2d.sample(point) * terrainHeight;
-  return perlin;
+    const point = d.vec2f(u * terrainScale, v * terrainScale);
+    const broadNoise = perlin2d.sample(point);
+    const detailNoise = perlin2d.sample(d.vec2f(point.x * 2, point.y * 2)) * 0.35;
+    const perlinValue = broadNoise * 0.8 + detailNoise;
+    const distanceFromFlat = Math.abs(perlinValue);
 
-//     const broadNoise = perlin2d.sample(point);
-//     const detailNoise = perlin2d.sample(d.vec2f(point.x * 2, point.y * 2)) * 0.35;
-//     const perlinValue = broadNoise * 0.8 + detailNoise;
-//     const distanceFromFlat = Math.abs(perlinValue);
+  if (distanceFromFlat <= flatRadius) {
+    return 0;
+  }
 
-//   if (distanceFromFlat <= flatRadius) {
-//     return 0;
-//   }
+  const transition = Math.min(
+    1,
+    Math.max(0, (distanceFromFlat - flatRadius) / flatTransition),
+  );
+  const smoothTransition = transition * transition * transition
+    * (transition * (transition * 6 - 15) + 10);
 
-//   const transition = Math.min(
-//     1,
-//     Math.max(0, (distanceFromFlat - flatRadius) / flatTransition),
-//   );
-//   const smoothTransition = transition * transition * transition
-//     * (transition * (transition * 6 - 15) + 10);
-
-//   return Math.sign(perlinValue)
-//     * smoothTransition
-//     * distanceFromFlat
-//     * terrainHeight;
+  return Math.sign(perlinValue)
+    * smoothTransition
+    * distanceFromFlat
+    * terrainHeight;
 };
 
 type MapVertex = d.Infer<typeof meshes.Surface>;
@@ -57,7 +54,7 @@ export class MapGenerator {
 
     const size = { width: heightMapWidth, height: heightMapHeight };
     const target = targets.create(root, size, {
-        perlin: { format: 'r8unorm', layers: 1, sampled: true },
+        perlin: { format: 'r16float', layers: 1, sampled: true },
     });
     const view = target.textures.perlin.createView();
     const sampler = root.createSampler({
@@ -72,7 +69,7 @@ export class MapGenerator {
 
             return d.vec4f(heightAt(uv.x, uv.y), 0, 0, 1);
         },
-        targets: {format: 'r8unorm'}
+        targets: {format: 'r16float'}
     });
     pipeline.withColorAttachment({view:target.textures.perlin}).draw(3)
 
@@ -88,8 +85,6 @@ export class MapGenerator {
         at: (u, v) => {
           "use gpu";
           const height = sampleHeight(u, v);
-        //   const data = new Uint8Array(4);
-        //   target.textures.perlin.write(data, {origin: [1,1], size: [1,1]});
           return d.vec3f((u - 0.5) * MAP_WIDTH, height, (v - 0.5) * MAP_HEIGHT);
         },
         normalAt: (u, v) => {
@@ -174,7 +169,6 @@ export class MapGenerator {
         if (sampleX >= 0 && sampleX < heightMapWidth &&
             sampleZ >= 0 && sampleZ < heightMapHeight) {
                 const height = this.heightMap.get(this.getKey(d.vec2f(sampleX, sampleZ)));
-                // console.log(`Height at (${sampleX}, ${sampleZ}): ${height}`);
                 totalHeight += height ?? 0;
             sampleCount++;
         }
@@ -251,20 +245,16 @@ export class MapGenerator {
     "use gpu";
     const point = shading.point(vertex.world, vertex.normal);
 
-    // const topColor = d.vec3f(0.1, 0.5, 0.2);
-    // const bottomColor = d.vec3f(0.0, 0.3, 0.1);
-    // const blendFactor = std.clamp((point.position.y + 1) / 2, 0, 1);
-    // const blendedColor = topColor * blendFactor + bottomColor * (1 - blendFactor);
+    const topColor = d.vec3f(0.1, 0.5, 0.2);
+    const bottomColor = d.vec3f(0.0, 0.3, 0.1);
+    const blendFactor = std.clamp((point.position.y + 1) / 2, 0, 1);
+    const blendedColor = topColor * blendFactor + bottomColor * (1 - blendFactor);
 
-    // const perlinFactor = perlin2d.sample(d.vec2f(point.position.x, point.position.z) * 0.5) * 0.5 + 0.5;
-    // const finalBlendFactor = std.clamp(blendFactor * 0.7 + perlinFactor * 0.3, 0, 1);
-    // const finalColor = topColor * finalBlendFactor + bottomColor * (1 - finalBlendFactor);
+    const perlinFactor = perlin2d.sample(d.vec2f(point.position.x, point.position.z) * 0.5) * 0.5 + 0.5;
+    const finalBlendFactor = std.clamp(blendFactor * 0.7 + perlinFactor * 0.3, 0, 1);
+    const finalColor = topColor * finalBlendFactor + bottomColor * (1 - finalBlendFactor);
 
-    const finalColor = d.vec3f(0.1, 0.5, 0.2) * 0.7 + d.vec3f(0.0, 0.3, 0.1) * 0.3;
     const material = materials.matte(finalColor);
     return Fragment({ color: d.vec4f(shading.shade(material, point), 1) });
-
-    // const c = std.abs(point.position.y) === 0 ? 1 : 0;
-    // return Fragment({ color: d.vec4f(c,c,c, 1) });
  };
 }
