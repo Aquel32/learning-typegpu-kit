@@ -43,7 +43,7 @@ export class CollisionObject {
     }
 
     public checkCollision() {
-        return this.collisionSystem.checkCollision(this);
+        return this.collisionSystem.checkObjectCollision(this);
     }
 
     public groundHeight() {
@@ -98,7 +98,7 @@ export class CollisionSystem {
         }
     }
 
-    public checkCollision(collisionObject: CollisionObject): CollisionInfo {
+    public checkObjectCollision(collisionObject: CollisionObject): CollisionInfo {
         const chunk = collisionObject.chunk;
         let ground: number | null = null;
         let objects: CollisionObject[] = [];

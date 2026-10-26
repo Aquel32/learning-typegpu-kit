@@ -53,7 +53,7 @@ const collisionSystem = new CollisionSystem(root, mapGenerator);
 const roadGenerator = new RoadGenerator(root, pool, mapGenerator, 7, d.vec3f(0,0.01,0));
 const carManager = new CarManager(root, pool);
 const treeGenerator = new TreeGenerator(root, pool, mapGenerator, collisionSystem, 5000);
-// const townsGenerator = new TownsGenerator(root, pool, mapGenerator, 3, 5, 0);
+const townsGenerator = new TownsGenerator(root, pool, mapGenerator, roadGenerator, collisionSystem, 5, 3, 5);
 const player = new Player(root, collisionSystem, carManager, surface, canvas, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.1, 0.008, 0.2));
 
 const encoder = root["~unstable"].createCommandEncoder();
@@ -61,7 +61,7 @@ skybox.addToPool(pool, encoder);
 mapGenerator.addToPool(pool, encoder);
 roadGenerator.addToPool(pool, encoder);
 await treeGenerator.addToPool(pool);
-// townsGenerator.addToPool(pool, encoder);
+townsGenerator.addToPool(pool, encoder);
 encoder.submit();
 
 const scene = passes
@@ -89,8 +89,8 @@ const carsCast = carManager.cast(light.shadow, light);
 const treesDrawn = treeGenerator.draw(scene, light);
 const treesCast = treeGenerator.cast(light.shadow, light);
 
-// const townsDrawn = townsGenerator.draw(scene, light);
-// const townsCast = townsGenerator.cast(light.shadow, light);
+const townsDrawn = townsGenerator.draw(scene, light);
+const townsCast = townsGenerator.cast(light.shadow, light);
 
 await Promise.all([scene.initAsync(), light.shadow.initAsync(), final.initAsync()]);
 
@@ -98,8 +98,8 @@ const loop = frames.create(root, (frame) => {
   player.update(frame.dt);
   carManager.update(frame.dt);
 
-  light.shadow.record(frame.encoder, [mapCast, carsCast, treesCast, roadCast]);
-  scene.record(frame, [skyboxDrawn, mapDrawn, carsDrawn, treesDrawn, roadDrawn]);
+  light.shadow.record(frame.encoder, [mapCast, carsCast, treesCast, roadCast, townsCast]);
+  scene.record(frame, [skyboxDrawn, mapDrawn, carsDrawn, treesDrawn, roadDrawn, townsDrawn]);
 
   const output = frame.encoder.beginRenderPass({
     colorAttachments: { view: surface.view(frame) },

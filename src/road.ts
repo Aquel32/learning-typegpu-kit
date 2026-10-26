@@ -33,7 +33,7 @@ export class RoadGenerator {
     this.edges = [];
     this.edges = this.getEdges();
 
-    this.network = this.getBiggestIsolatedRoadArea();
+    this.network = this.getBiggestComponent();
 
     const vertexData: RoadVertex[] = [];
     const roadWidth = 0.5;
@@ -442,7 +442,7 @@ export class RoadGenerator {
     return false;
   }
 
-  private getEdgePoints(edge: d.Infer<typeof RoadEdge>): d.v2f[] {
+  public getEdgePoints(edge: d.Infer<typeof RoadEdge>): d.v2f[] {
     const points: d.v2f[] = [];
     const segments = 30;
 
@@ -486,7 +486,7 @@ export class RoadGenerator {
     );
   }
 
-  private getBiggestIsolatedRoadArea(): d.Infer<typeof RoadEdge>[] {
+  private getBiggestComponent(): d.Infer<typeof RoadEdge>[] {
     const components: d.Infer<typeof RoadEdge>[][] = [];
     const visited = new Set<d.Infer<typeof RoadNode>>();
 
@@ -513,6 +513,8 @@ export class RoadGenerator {
           }
         }
       }
+
+      components.push(componentEdges);
     }
 
     let largestComponent: d.Infer<typeof RoadEdge>[] = [];
@@ -522,11 +524,27 @@ export class RoadGenerator {
       }
     }
 
+    console.log(
+      `Found ${components.length} road components. Largest component has ${largestComponent.length} edges.`,
+    );
     return largestComponent;
+  }
+
+  public getNeighbours(edge: d.Infer<typeof RoadEdge>): d.Infer<typeof RoadEdge>[] {
+    const neighbours: d.Infer<typeof RoadEdge>[] = [];
+    for (const otherEdge of this.edges) {
+      if (
+        (edge.start === otherEdge.start || edge.start === otherEdge.end) ||
+        (edge.end === otherEdge.start || edge.end === otherEdge.end)
+      ) {
+        neighbours.push(otherEdge);
+      }
+    }
+    return neighbours;
   }
 }
 
-function bezierPoint(p0: d.v2f, p1: d.v2f, p2: d.v2f, p3: d.v2f, t: number): d.v2f {
+export function bezierPoint(p0: d.v2f, p1: d.v2f, p2: d.v2f, p3: d.v2f, t: number): d.v2f {
   const u = 1 - t;
   const tt = t * t;
   const uu = u * u;
@@ -541,7 +559,7 @@ function bezierPoint(p0: d.v2f, p1: d.v2f, p2: d.v2f, p3: d.v2f, t: number): d.v
   return p;
 }
 
-function bezierTangent(p0: d.v2f, p1: d.v2f, p2: d.v2f, p3: d.v2f, t: number): d.v2f {
+export function bezierTangent(p0: d.v2f, p1: d.v2f, p2: d.v2f, p3: d.v2f, t: number): d.v2f {
   const u = 1 - t;
   const tt = t * t;
   const uu = u * u;
