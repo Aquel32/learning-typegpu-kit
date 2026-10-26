@@ -6,7 +6,7 @@ export class CarManager {
     private modelName = "sedan-sports-packed.glb";
     private pool : meshPool.MeshPool<{}>;
     private things;
-    private cars: Car[];
+    public cars: Car[];
 
     constructor(root: TgpuRoot, pool: meshPool.MeshPool<{}>) {
         this.pool = pool;

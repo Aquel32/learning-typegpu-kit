@@ -14,6 +14,7 @@ export class Car {
     public velocity: d.v3f;
     public mass: number;
     public dimensions: d.v3f;
+    public isSkidding: boolean;
 
     private positionUniform;
     private rotationUniform;
@@ -35,6 +36,7 @@ export class Car {
         this.velocity = velocity;
         this.mass = mass;
         this.dimensions = dimensions;
+        this.isSkidding = false;
         this.model = null;
 
         this.positionUniform = root.createUniform(d.vec3f, this.position);
@@ -112,6 +114,14 @@ export class Car {
         const speed = Math.sqrt(
             this.velocity.x ** 2 + this.velocity.y ** 2 + this.velocity.z ** 2,
         );
+        const sidewaysSpeed = Math.sqrt(
+            sidewaysVelocity.x ** 2 + sidewaysVelocity.z ** 2,
+        );
+        this.isSkidding =
+            collisionInfo.ground !== null &&
+            this.drifts &&
+            speed > 1 &&
+            sidewaysSpeed > 0.25;
         this.gripPower = Math.min(
             0.98,
             Math.max(0.65, this.gripPower + (this.drifts ? 1 : -1) * deltaTime),

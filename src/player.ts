@@ -38,11 +38,11 @@ export class Player {
     }
 
     public update(deltaTime: number) {
+        "use gpu";
         this.applySteering(deltaTime);
 
-
         const carForward = this.car.getForward();
-        this.view.goal.target = this.car.position;
+        this.view.goal.target = this.car.position.add(d.vec3f(0, 0.1, 0));
         this.view.goal.yaw = std.atan2(-carForward.x, -carForward.z);
         this.view.goal.fov = this.drifts ? Math.PI / 2 : Math.PI / 3;
         this.view.update(deltaTime);
