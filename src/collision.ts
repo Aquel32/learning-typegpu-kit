@@ -117,7 +117,6 @@ export class CollisionSystem {
         }
 
         const groundHeight = this.mapGenerator.getHeightAtWorldPosition(collisionObject.position);
-        console.log(groundHeight);
         if(collisionObject.AABB.min.y <= groundHeight) {
             ground = groundHeight;
         }

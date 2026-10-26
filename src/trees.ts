@@ -30,12 +30,12 @@ export class TreeGenerator{
         for(let i = 0; i < trees; i++) {
             const x = Math.random() * MAP_WIDTH - MAP_WIDTH / 2;
             const z = Math.random() * MAP_HEIGHT - MAP_HEIGHT / 2;
-            const height = this.mapGenerator.getHeightAtWorldPosition(d.vec3f(x, 0, z));
-            if(Math.abs(height) > 0.05) {
-                this.treePositions.push(d.vec3f(x, height + this.treeHeight / 2, z));
+            const groundHeight = this.mapGenerator.getHeightAtWorldPosition(d.vec3f(x, 0, z));
+            if(Math.abs(groundHeight) > 0.05) {
+                this.treePositions.push(d.vec3f(x, groundHeight + this.treeHeight / 2, z));
                 collisionSystem.register(
-                    d.vec3f(x, height + this.treeHeight / 2, z),
-                    d.vec3f(this.treeRadius * 2, this.treeHeight, this.treeRadius * 2),
+                    d.vec3f(x, groundHeight + this.treeHeight / 2, z),
+                    d.vec3f(this.treeRadius, this.treeHeight, this.treeRadius),
                 );
             }
         }

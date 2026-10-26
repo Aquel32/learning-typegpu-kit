@@ -47,20 +47,20 @@ const skybox = new Skybox(root, sunDirection);
 const pool = meshPool.create(root, { capacity: 64 });
 
 const mapGenerator = new MapGenerator(root, pool);
+await mapGenerator.loadHeightMap();
 const collisionSystem = new CollisionSystem(root, mapGenerator);
 
-// const roadGenerator = new RoadGenerator(root, pool, mapGenerator, 8, d.vec3f(0,0.01,0));
+const roadGenerator = new RoadGenerator(root, pool, mapGenerator, 7, d.vec3f(0,0.01,0));
 const carManager = new CarManager(root, pool);
 const treeGenerator = new TreeGenerator(root, pool, mapGenerator, collisionSystem, 5000);
 // const townsGenerator = new TownsGenerator(root, pool, mapGenerator, 3, 5, 0);
-// const player = new Player(root, collisionSystem, carManager, surface, canvas, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.1, 0.1, 0.2));
-const player = new Player(root, collisionSystem, carManager, surface, canvas, d.vec3f(0,0,0), d.vec3f(0,0,0), d.vec3f(0, 0, 0), 5, d.vec3f(0.1, 0.008, 0.2));
+const player = new Player(root, collisionSystem, carManager, surface, canvas, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.1, 0.008, 0.2));
 
 const encoder = root["~unstable"].createCommandEncoder();
 skybox.addToPool(pool, encoder);
 mapGenerator.addToPool(pool, encoder);
-// roadGenerator.addToPool(pool, encoder);
-// await treeGenerator.addToPool(pool);
+roadGenerator.addToPool(pool, encoder);
+await treeGenerator.addToPool(pool);
 // townsGenerator.addToPool(pool, encoder);
 encoder.submit();
 
@@ -80,14 +80,14 @@ const skyboxDrawn = skybox.draw(scene, pool);
 const mapDrawn = mapGenerator.draw(scene, light);
 const mapCast = mapGenerator.cast(light.shadow, pool);
 
-// const roadDrawn = roadGenerator.draw(scene, light);
-// const roadCast = roadGenerator.cast(light.shadow);
+const roadDrawn = roadGenerator.draw(scene, light);
+const roadCast = roadGenerator.cast(light.shadow);
 
 const carsDrawn = carManager.draw(scene, light);
 const carsCast = carManager.cast(light.shadow, light);
 
-// const treesDrawn = treeGenerator.draw(scene, light);
-// const treesCast = treeGenerator.cast(light.shadow, light);
+const treesDrawn = treeGenerator.draw(scene, light);
+const treesCast = treeGenerator.cast(light.shadow, light);
 
 // const townsDrawn = townsGenerator.draw(scene, light);
 // const townsCast = townsGenerator.cast(light.shadow, light);
@@ -98,8 +98,8 @@ const loop = frames.create(root, (frame) => {
   player.update(frame.dt);
   carManager.update(frame.dt);
 
-  light.shadow.record(frame.encoder, [mapCast, carsCast]);
-  scene.record(frame, [skyboxDrawn, mapDrawn, carsDrawn]);
+  light.shadow.record(frame.encoder, [mapCast, carsCast, treesCast, roadCast]);
+  scene.record(frame, [skyboxDrawn, mapDrawn, carsDrawn, treesDrawn, roadDrawn]);
 
   const output = frame.encoder.beginRenderPass({
     colorAttachments: { view: surface.view(frame) },

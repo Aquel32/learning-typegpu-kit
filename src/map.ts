@@ -1,6 +1,6 @@
 import { camera, lighting, materials, meshPool, passes, shading, targets } from "@typegpu/kit";
 import { meshes } from "@typegpu/kit/geometry";
-import { common, d, std, tgpu, type TgpuCommandEncoder, type TgpuRoot } from "typegpu";
+import { common, d, std, tgpu, type StorageFlag, type TgpuBuffer, type TgpuCommandEncoder, type TgpuFixedSampler, type TgpuRoot, type TgpuTextureView, type UniformFlag } from "typegpu";
 import { Fragment, HEIGHT_MAP_SCALE, MAP_HEIGHT, MAP_SUBDIVISIONS, MAP_WIDTH, Vertex } from "./static";
 import { perlin } from "./perlin";
 import { perlin2d } from "@typegpu/noise";
@@ -12,6 +12,7 @@ const terrainHeight = 2;
 
 const heightMapWidth = MAP_WIDTH * MAP_SUBDIVISIONS * HEIGHT_MAP_SCALE;
 const heightMapHeight = MAP_HEIGHT * MAP_SUBDIVISIONS * HEIGHT_MAP_SCALE;
+
 
 const heightAt = (u: number, v: number) => {
     "use gpu";
@@ -46,6 +47,7 @@ export class MapGenerator {
   public mesh: meshPool.Mesh | null;
   private heightMap: Map<string, number>;
   private pool: meshPool.MeshPool<{}>;
+  private heightMapStorage: TgpuBuffer<d.WgslArray<d.F32>> & UniformFlag & StorageFlag
 
   constructor(root: TgpuRoot, pool: meshPool.MeshPool<{}>) {
     this.pool = pool;
@@ -57,10 +59,15 @@ export class MapGenerator {
         perlin: { format: 'r16float', layers: 1, sampled: true },
     });
     const view = target.textures.perlin.createView();
-    const sampler = root.createSampler({
+   const sampler = root.createSampler({
         magFilter: 'nearest',
         minFilter: 'nearest',
     });
+
+    function sampleHeight(u: number, v: number): number {
+        "use gpu";
+        return std.textureSampleLevel(view.$, sampler.$, d.vec2f(u, v), 0).x;
+    }
 
     const pipeline = root.createRenderPipeline({
         vertex: common.fullScreenTriangle,
@@ -75,11 +82,6 @@ export class MapGenerator {
 
     this.mesh = null;
     
-    function sampleHeight(u: number, v: number): number {
-        "use gpu";
-        return std.textureSampleLevel(view.$, sampler.$, d.vec2f(u, v), 0).x;
-    }
-
     this.shape = meshes.parametric(
       {
         at: (u, v) => {
@@ -104,17 +106,12 @@ export class MapGenerator {
       { cols: MAP_WIDTH * MAP_SUBDIVISIONS, rows: MAP_HEIGHT * MAP_SUBDIVISIONS },
     );
 
-    this.loadHeightMap(root, sampleHeight);
-  }
-
-  private async loadHeightMap(root: TgpuRoot, sampleHeight: (u: number, v: number) => number) {
-    const heightMapStorage = root.createBuffer(d.arrayOf(d.f32, heightMapWidth * heightMapHeight)).$usage("storage", "uniform");
-
+    this.heightMapStorage = root.createBuffer(d.arrayOf(d.f32, heightMapWidth * heightMapHeight)).$usage("storage", "uniform");
     const fooLayout = tgpu.bindGroupLayout({
         storage: { storage: d.arrayOf(d.f32), access: "mutable" },
     });
     const fooBindGroup = root.createBindGroup(fooLayout, {
-        storage: heightMapStorage,
+        storage: this.heightMapStorage,
     });
 
     const computePipeline = root.createGuardedComputePipeline((x, y)=>{
@@ -126,8 +123,10 @@ export class MapGenerator {
         fooLayout.$.storage[index] = height;
     })
     computePipeline.with(fooBindGroup).dispatchThreads(heightMapWidth, heightMapHeight);
+  }
 
-    const heightMapData = await heightMapStorage.read();
+  public async loadHeightMap() {
+    const heightMapData = await this.heightMapStorage.read();
 
     for(let i = 0; i < heightMapData.length; i++) {
         const x = i % heightMapWidth;
@@ -136,18 +135,30 @@ export class MapGenerator {
         this.heightMap.set(this.getKey(d.vec2f(x, z)), height);
     }
 
-    heightMapStorage.destroy();
+    this.heightMapStorage.destroy();
   }
 
   public getHeightAtWorldPosition(position: d.v3f): number {
+    const uv = this.worldPositionToUV(position);
+    return this.getHeightAtUV(uv.x, uv.y);
+  }
+
+  public worldPositionToUV(position: d.v3f): d.v2f {
     const x = position.x + MAP_WIDTH / 2;
     const z = position.z + MAP_HEIGHT / 2;
     const u = x / MAP_WIDTH;
     const v = z / MAP_HEIGHT;
-    return this.getHeightAtUV(u, v);
+    return d.vec2f(u, v);
   }
 
-  private getHeightAtUV(u: number, v: number): number {
+  public uvToWorldPosition(uv: d.v2f): d.v3f {
+    const x = uv.x * MAP_WIDTH - MAP_WIDTH / 2;
+    const z = uv.y * MAP_HEIGHT - MAP_HEIGHT / 2;
+    const height = this.getHeightAtUV(uv.x, uv.y);
+    return d.vec3f(x, height, z);
+  }
+
+  public getHeightAtUV(u: number, v: number): number {
     const x = Math.floor(u * (heightMapWidth - 1));
     const z = Math.floor(v * (heightMapHeight - 1));
 
@@ -177,7 +188,7 @@ export class MapGenerator {
     return totalHeight / sampleCount;
   }
 
-  private getKey(position: d.v2f): string {
+  public getKey(position: d.v2f): string {
     return `${position.x},${position.y}`;
   }
 
