@@ -27,42 +27,19 @@ export class TreeGenerator{
         this.treePositions = [];
         this.models = [];
 
-        while(this.treePositions.length < trees) {
+        for(let i = 0; i < trees; i++) {
             const x = Math.random() * MAP_WIDTH - MAP_WIDTH / 2;
             const z = Math.random() * MAP_HEIGHT - MAP_HEIGHT / 2;
-            const height = this.heightAt(x, z, MAP_WIDTH, MAP_HEIGHT);
-            if(Math.abs(height) > 0.05) {
-                this.treePositions.push(d.vec3f(x, height + this.treeHeight / 2, z));
+            const groundHeight = this.mapGenerator.getHeightAtWorldPosition(d.vec3f(x, 0, z));
+            if(Math.abs(groundHeight) > 0.05) {
+                this.treePositions.push(d.vec3f(x, groundHeight + this.treeHeight / 2, z));
                 collisionSystem.register(
-                    d.vec3f(x, height + this.treeHeight / 2, z),
-                    d.vec3f(this.treeRadius * 2, this.treeHeight, this.treeRadius * 2),
+                    d.vec3f(x, groundHeight + this.treeHeight / 2, z),
+                    d.vec3f(this.treeRadius, this.treeHeight, this.treeRadius),
                 );
             }
         }
-    }
-
-    private heightAt(x: number, z: number, mapWidth: number, mapHeight: number): number {
-        const minX = -Math.floor(mapWidth / 2);
-        const minZ = -Math.floor(mapHeight / 2);
-        const maxX = Math.ceil(mapWidth / 2) - 1;
-        const maxZ = Math.ceil(mapHeight / 2) - 1;
-        const x0 = Math.max(minX, Math.min(maxX, Math.floor(x)));
-        const z0 = Math.max(minZ, Math.min(maxZ, Math.floor(z)));
-        const x1 = Math.min(maxX, x0 + 1);
-        const z1 = Math.min(maxZ, z0 + 1);
-        const tx = x1 === x0 ? 0 : x - x0;
-        const tz = z1 === z0 ? 0 : z - z0;
-
-        const sample = (sampleX: number, sampleZ: number) =>
-            this.mapGenerator.heightMap.get(`${sampleX},${sampleZ}`) ?? 0;
-        const h00 = sample(x0, z0);
-        const h10 = sample(x1, z0);
-        const h01 = sample(x0, z1);
-        const h11 = sample(x1, z1);
-        const h0 = h00 + (h10 - h00) * tx;
-        const h1 = h01 + (h11 - h01) * tx;
-
-        return h0 + (h1 - h0) * tz;
+        console.log(`Generated ${this.treePositions.length} trees out of ${trees} requested.`);
     }
 
     public async addToPool(pool: meshPool.MeshPool<{}>) {

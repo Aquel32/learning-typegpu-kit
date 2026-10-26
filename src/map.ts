@@ -1,21 +1,27 @@
-import { camera, lighting, materials, meshPool, passes, shading } from "@typegpu/kit";
+import { camera, lighting, materials, meshPool, passes, shading, targets } from "@typegpu/kit";
 import { meshes } from "@typegpu/kit/geometry";
-import { d, std, tgpu, type TgpuCommandEncoder, type TgpuRoot } from "typegpu";
-import { Fragment, MAP_HEIGHT, MAP_SUBDIVISIONS, MAP_WIDTH, Vertex } from "./static";
+import { common, d, std, tgpu, type StorageFlag, type TgpuBuffer, type TgpuCommandEncoder, type TgpuFixedSampler, type TgpuRoot, type TgpuTextureView, type UniformFlag } from "typegpu";
+import { Fragment, HEIGHT_MAP_SCALE, MAP_HEIGHT, MAP_SUBDIVISIONS, MAP_WIDTH, Vertex } from "./static";
 import { perlin } from "./perlin";
 import { perlin2d } from "@typegpu/noise";
 
 const flatRadius = 0.1;
 const flatTransition = 0.16;
-const terrainScale = 3.5;
-const terrainHeight = 2.5;
+const terrainScale = 3;
+const terrainHeight = 2;
+
+const heightMapWidth = MAP_WIDTH * MAP_SUBDIVISIONS * HEIGHT_MAP_SCALE;
+const heightMapHeight = MAP_HEIGHT * MAP_SUBDIVISIONS * HEIGHT_MAP_SCALE;
+
 
 const heightAt = (u: number, v: number) => {
-  const point = d.vec2f(u * terrainScale, v * terrainScale);
-  const broadNoise = perlin.get(point);
-  const detailNoise = perlin.get(d.vec2f(point.x * 2, point.y * 2)) * 0.35;
-  const perlinValue = broadNoise * 0.8 + detailNoise;
-  const distanceFromFlat = Math.abs(perlinValue);
+    "use gpu";
+
+    const point = d.vec2f(u * terrainScale, v * terrainScale);
+    const broadNoise = perlin2d.sample(point);
+    const detailNoise = perlin2d.sample(d.vec2f(point.x * 2, point.y * 2)) * 0.35;
+    const perlinValue = broadNoise * 0.8 + detailNoise;
+    const distanceFromFlat = Math.abs(perlinValue);
 
   if (distanceFromFlat <= flatRadius) {
     return 0;
@@ -39,107 +45,152 @@ type MapVertex = d.Infer<typeof meshes.Surface>;
 export class MapGenerator {
   private readonly shape: meshes.Geometry<typeof meshes.Surface>;
   public mesh: meshPool.Mesh | null;
-  public heightMap: Map<string, number>;
+  private heightMap: Map<string, number>;
   private pool: meshPool.MeshPool<{}>;
+  private heightMapStorage: TgpuBuffer<d.WgslArray<d.F32>> & UniformFlag & StorageFlag
 
   constructor(root: TgpuRoot, pool: meshPool.MeshPool<{}>) {
     this.pool = pool;
 
     this.heightMap = new Map();
-    const vertexData: MapVertex[] = this.generateVertices();
-    for (let x = -Math.floor(MAP_WIDTH / 2); x < Math.ceil(MAP_WIDTH / 2); x++) {
-      for (let z = -Math.floor(MAP_HEIGHT / 2); z < Math.ceil(MAP_HEIGHT / 2); z++) {
-        const u = (x + MAP_WIDTH / 2) / MAP_WIDTH;
-        const v = (z + MAP_HEIGHT / 2) / MAP_HEIGHT;
-        this.heightMap.set(`${x},${z}`, heightAt(u, v));
-      }
+
+    const size = { width: heightMapWidth, height: heightMapHeight };
+    const target = targets.create(root, size, {
+        perlin: { format: 'r16float', layers: 1, sampled: true },
+    });
+    const view = target.textures.perlin.createView();
+   const sampler = root.createSampler({
+        magFilter: 'nearest',
+        minFilter: 'nearest',
+    });
+
+    function sampleHeight(u: number, v: number): number {
+        "use gpu";
+        return std.textureSampleLevel(view.$, sampler.$, d.vec2f(u, v), 0).x;
     }
 
-    const vertices = tgpu.const(d.arrayOf(meshes.Surface), vertexData);
-    this.shape = {
-            schema: meshes.Surface,
-            topology: "triangle-list",
-            vertexCount: vertexData.length,
-            vertexAt: (index: number) => {
-                "use gpu";
-                return meshes.Surface(vertices.$[index]!);
-            },
-        };
+    const pipeline = root.createRenderPipeline({
+        vertex: common.fullScreenTriangle,
+        fragment: ({ uv }) => {
+            "use gpu";
+
+            return d.vec4f(heightAt(uv.x, uv.y), 0, 0, 1);
+        },
+        targets: {format: 'r16float'}
+    });
+    pipeline.withColorAttachment({view:target.textures.perlin}).draw(3)
+
     this.mesh = null;
-
-    // this.shape = meshes.parametric(
-    //   {
-    //     at: (u, v) => {
-    //       "use gpu";
-    //       return d.vec3f((u - 0.5) * width, heightAt(u, v), (v - 0.5) * depth);
-    //     },
-    //     normalAt: (u, v) => {
-    //       "use gpu";
-    //       const step = 0.001;
-    //       const left = heightAt(std.max(u - step, 0), v);
-    //       const right = heightAt(std.min(u + step, 1), v);
-    //       const back = heightAt(u, std.max(v - step, 0));
-    //       const front = heightAt(u, std.min(v + step, 1));
-    //       const slopeX = (right - left) / (2 * step);
-    //       const slopeZ = (front - back) / (2 * step);
+    
+    this.shape = meshes.parametric(
+      {
+        at: (u, v) => {
+          "use gpu";
+          const height = sampleHeight(u, v);
+          return d.vec3f((u - 0.5) * MAP_WIDTH, height, (v - 0.5) * MAP_HEIGHT);
+        },
+        normalAt: (u, v) => {
+          "use gpu";
+          const step = 0.001;
+          const left = sampleHeight(std.max(u - step, 0), v);
+          const right = sampleHeight(std.min(u + step, 1), v);
+          const back = sampleHeight(u, std.max(v - step, 0));
+          const front = sampleHeight(u, std.min(v + step, 1));
+          const slopeX = (right - left) / (2 * step);
+          const slopeZ = (front - back) / (2 * step);
         
-    //       const normal = std.normalize(d.vec3f(-slopeX, 1, -slopeZ));
-    //       return normal;
-    //     },
-    //   },
-    //   { cols: subdivisions, rows: subdivisions },
-    // );
-    // // this.shape = meshes.plane({ width, depth, widthSegments: subdivisions, depthSegments: subdivisions });
+          const normal = std.normalize(d.vec3f(-slopeX, 1, -slopeZ));
+          return normal;
+        },
+      },
+      { cols: MAP_WIDTH * MAP_SUBDIVISIONS, rows: MAP_HEIGHT * MAP_SUBDIVISIONS },
+    );
 
-    // this.mesh = null;
+    this.heightMapStorage = root.createBuffer(d.arrayOf(d.f32, heightMapWidth * heightMapHeight)).$usage("storage", "uniform");
+    const fooLayout = tgpu.bindGroupLayout({
+        storage: { storage: d.arrayOf(d.f32), access: "mutable" },
+    });
+    const fooBindGroup = root.createBindGroup(fooLayout, {
+        storage: this.heightMapStorage,
+    });
 
-    // this.heightMap = new Map();
-    // for (let i = 0; i <= subdivisions; i++) {
-    //   for (let j = 0; j <= subdivisions; j++) {
-    //     const u = i / subdivisions;
-    //     const v = j / subdivisions;
-    //     const height = 1;
-    //     this.heightMap.set(d.vec2f(u, v), height);
-    //   }
-    // }
+    const computePipeline = root.createGuardedComputePipeline((x, y)=>{
+        "use gpu";
+        const u = x / (heightMapWidth - 1);
+        const v = y / (heightMapHeight - 1);
+        const height = sampleHeight(u, v);
+        const index = y * (heightMapWidth) + x;
+        fooLayout.$.storage[index] = height;
+    })
+    computePipeline.with(fooBindGroup).dispatchThreads(heightMapWidth, heightMapHeight);
   }
 
-  private generateVertices() {
-    const vertexData: MapVertex[] = [];
-    for (let i = 0; i < MAP_SUBDIVISIONS; i++) {
-      for (let j = 0; j < MAP_SUBDIVISIONS; j++) {
-        const u0 = i / MAP_SUBDIVISIONS;
-        const v0 = j / MAP_SUBDIVISIONS;
-        const u1 = (i + 1) / MAP_SUBDIVISIONS;
-        const v1 = (j + 1) / MAP_SUBDIVISIONS;
+  public async loadHeightMap() {
+    const heightMapData = await this.heightMapStorage.read();
 
-        const p00 = d.vec3f((u0 - 0.5) * MAP_WIDTH, heightAt(u0, v0), (v0 - 0.5) * MAP_HEIGHT);
-        const p10 = d.vec3f((u1 - 0.5) * MAP_WIDTH, heightAt(u1, v0), (v0 - 0.5) * MAP_HEIGHT);
-        const p01 = d.vec3f((u0 - 0.5) * MAP_WIDTH, heightAt(u0, v1), (v1 - 0.5) * MAP_HEIGHT);
-        const p11 = d.vec3f((u1 - 0.5) * MAP_WIDTH, heightAt(u1, v1), (v1 - 0.5) * MAP_HEIGHT);
-
-        const n00 = std.normalize(d.vec3f(0, 1, 0));
-        const n10 = std.normalize(d.vec3f(0, 1, 0));
-        const n01 = std.normalize(d.vec3f(0, 1, 0));
-        const n11 = std.normalize(d.vec3f(0, 1, 0));
-
-        const uv00 = d.vec2f(u0, v0);
-        const uv10 = d.vec2f(u1, v0);
-        const uv01 = d.vec2f(u0, v1);
-        const uv11 = d.vec2f(u1, v1);
-
-        vertexData.push(
-          { position: p00, normal: n00, uv: uv00 },
-          { position: p10, normal: n10, uv: uv10 },
-          { position: p01, normal: n01, uv: uv01 },
-          { position: p10, normal: n10, uv: uv10 },
-          { position: p11, normal: n11, uv: uv11 },
-          { position: p01, normal: n01, uv: uv01 },
-        );
-      }
+    for(let i = 0; i < heightMapData.length; i++) {
+        const x = i % heightMapWidth;
+        const z = Math.floor(i / heightMapWidth);
+        const height = heightMapData[i];
+        this.heightMap.set(this.getKey(d.vec2f(x, z)), height);
     }
-    return vertexData;
-}
+
+    this.heightMapStorage.destroy();
+  }
+
+  public getHeightAtWorldPosition(position: d.v3f): number {
+    const uv = this.worldPositionToUV(position);
+    return this.getHeightAtUV(uv.x, uv.y);
+  }
+
+  public worldPositionToUV(position: d.v3f): d.v2f {
+    const x = position.x + MAP_WIDTH / 2;
+    const z = position.z + MAP_HEIGHT / 2;
+    const u = x / MAP_WIDTH;
+    const v = z / MAP_HEIGHT;
+    return d.vec2f(u, v);
+  }
+
+  public uvToWorldPosition(uv: d.v2f): d.v3f {
+    const x = uv.x * MAP_WIDTH - MAP_WIDTH / 2;
+    const z = uv.y * MAP_HEIGHT - MAP_HEIGHT / 2;
+    const height = this.getHeightAtUV(uv.x, uv.y);
+    return d.vec3f(x, height, z);
+  }
+
+  public getHeightAtUV(u: number, v: number): number {
+    const x = Math.floor(u * (heightMapWidth - 1));
+    const z = Math.floor(v * (heightMapHeight - 1));
+
+    const sampleOffsets = [
+        d.vec2f(0, 0),
+        d.vec2f(-1, 0),
+        d.vec2f(1, 0),
+        d.vec2f(0, -1),
+        d.vec2f(0, 1),
+    ];
+
+    let totalHeight = 0;
+    let sampleCount = 0;
+
+    for (const offset of sampleOffsets) {
+        const sampleX = x + offset.x;
+        const sampleZ = z + offset.y;
+
+        if (sampleX >= 0 && sampleX < heightMapWidth &&
+            sampleZ >= 0 && sampleZ < heightMapHeight) {
+                const height = this.heightMap.get(this.getKey(d.vec2f(sampleX, sampleZ)));
+                totalHeight += height ?? 0;
+            sampleCount++;
+        }
+    }
+
+    return totalHeight / sampleCount;
+  }
+
+  public getKey(position: d.v2f): string {
+    return `${position.x},${position.y}`;
+  }
 
   public addToPool(pool: meshPool.MeshPool<{}>, encoder: TgpuCommandEncoder) {
     this.mesh = pool.add(this.shape, encoder);
@@ -216,8 +267,5 @@ export class MapGenerator {
 
     const material = materials.matte(finalColor);
     return Fragment({ color: d.vec4f(shading.shade(material, point), 1) });
-
-    // const c = std.abs(point.position.y) === 0 ? 1 : 0;
-    // return Fragment({ color: d.vec4f(c,c,c, 1) });
  };
 }

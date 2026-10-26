@@ -52,8 +52,8 @@ export class Car {
         this.applyForce(d.vec3f(0, -gravityMultiplier * this.mass, 0), deltaTime);
 
         const collisionInfo = this.collisionObject.checkCollision();
+        const groundHeight = collisionInfo.ground ?? 0;
         if(collisionInfo.ground !== null) {
-            const groundHeight = collisionInfo.ground;
             if(this.position.y <= groundHeight + this.dimensions.y / 2) {
                 this.position = d.vec3f(this.position.x, groundHeight + this.dimensions.y / 2, this.position.z);
                 this.velocity = d.vec3f(this.velocity.x, 0, this.velocity.z);
@@ -96,6 +96,7 @@ export class Car {
                 }
             }
         }
+        
         const forward = this.getForward();
         const forwardSpeed = this.velocity.x * forward.x + this.velocity.z * forward.z;
         const forwardVelocity = d.vec3f(

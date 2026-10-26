@@ -1,128 +1,180 @@
-import { camera, instances, lighting, materials, meshPool, passes, shading } from "@typegpu/kit";
+import { instances, lighting, materials, meshPool, passes } from "@typegpu/kit";
 import type { MapGenerator } from "./map";
-import { d, type TgpuCommandEncoder, type TgpuRenderPipeline, type TgpuRoot } from "typegpu";
+import { d, type TgpuCommandEncoder, type TgpuRoot } from "typegpu";
 import { meshes } from "@typegpu/kit/geometry";
-import { Fragment, MAP_HEIGHT, MAP_WIDTH, Vertex } from "./static";
+import { bezierPoint, bezierTangent, type RoadGenerator } from "./road";
+import type { CollisionSystem } from "./collision";
 
 type Building = {
-    position: d.v3f;
-    dimensions: d.v3f;
-    color: d.v3f;
-    mesh: meshPool.Mesh | null;
-    shape: meshes.IndexedGeometry<d.WgslStruct<{
-        position: d.Vec3f;
-        normal: d.Vec3f;
-        uv: d.Vec2f;
-    }>>
+  position: d.v3f;
+  dimensions: d.v3f;
+  color: d.v3f;
+  mesh: meshPool.Mesh | null;
+  rotation: d.v4f;
+  shape: meshes.IndexedGeometry<
+    d.WgslStruct<{
+      position: d.Vec3f;
+      normal: d.Vec3f;
+      uv: d.Vec2f;
+    }>
+  >;
 };
 
-export class TownsGenerator{
-    private mapGenerator: MapGenerator;
-    private things;
-    private buildings: Building[];
+export class TownsGenerator {
+  private mapGenerator: MapGenerator;
+  private collisionSystem: CollisionSystem;
+  private things;
+  private buildings: Building[];
 
-    constructor(root: TgpuRoot, pool: meshPool.MeshPool<{}>, mapGenerator: MapGenerator, towns: number = 3, buildingsPerTown: number = 5, loneBuildings: number = 5) {
-        this.mapGenerator = mapGenerator;
-        this.things = instances.create(root, pool, {capacity: towns * buildingsPerTown + loneBuildings});
-        this.buildings = [];
+  constructor(
+    root: TgpuRoot,
+    pool: meshPool.MeshPool<{}>,
+    mapGenerator: MapGenerator,
+    roadGenerator: RoadGenerator,
+    collisionSystem: CollisionSystem,
+    townsTries: number = 3,
+    buildingsPerTownTries: number = 5,
+    loneBuildingsTries: number = 5,
+  ) {
+    "use gpu";
+    this.collisionSystem = collisionSystem;
+    this.mapGenerator = mapGenerator;
+    this.things = instances.create(root, pool, {
+      capacity: townsTries * buildingsPerTownTries + loneBuildingsTries,
+    });
+    this.buildings = [];
 
-        let townsPlaced = 0;
-        while(townsPlaced < towns) {
-            let townCenterX = Math.random() * MAP_WIDTH - MAP_WIDTH / 2;
-            let townCenterZ = Math.random() * MAP_HEIGHT - MAP_HEIGHT / 2;
-            let townCenterHeight = this.heightAt(townCenterX, townCenterZ, MAP_WIDTH, MAP_HEIGHT);
-            if(Math.abs(townCenterHeight) < 0.05) {
-                for(let i = 0; i < buildingsPerTown; i++) {
-                    let offsetX = (Math.random() - 0.5) * 10;
-                    let offsetZ = (Math.random() - 0.5) * 10;
-                    let buildingX = townCenterX + offsetX;
-                    let buildingZ = townCenterZ + offsetZ;
-                    let buildingHeight = this.heightAt(buildingX, buildingZ, MAP_WIDTH, MAP_HEIGHT);
-                    if(Math.abs(buildingHeight) < 0.05) {
-                        this.buildings.push(this.createBuilding(buildingX, buildingZ, buildingHeight));
-                    }
-                }
-                townsPlaced++;
-            }
+    const possibleEdges = [...roadGenerator.network];
+
+    for (let i = 0; i < townsTries; i++) {
+      if (possibleEdges.length === 0) {
+        break;
+      }
+
+      const randomEdgeIndex = Math.floor(Math.random() * possibleEdges.length);
+      const randomEdge = possibleEdges[randomEdgeIndex];
+      possibleEdges.splice(randomEdgeIndex, 1);
+
+      const possiblePoints = roadGenerator.getEdgePoints(randomEdge);
+
+      for (let j = 0; j < buildingsPerTownTries; j++) {
+        if (possiblePoints.length === 0) {
+          break;
         }
 
-        let loneBuildingsPlaced = 0;
-        while(loneBuildingsPlaced < loneBuildings) {
-            let buildingX = Math.random() * MAP_WIDTH - MAP_WIDTH / 2;
-            let buildingZ = Math.random() * MAP_HEIGHT - MAP_HEIGHT / 2;
-            let buildingHeight = this.heightAt(buildingX, buildingZ, MAP_WIDTH, MAP_HEIGHT);
-            if(Math.abs(buildingHeight) < 0.05) {
-                this.buildings.push(this.createBuilding(buildingX, buildingZ, buildingHeight));
-                loneBuildingsPlaced++;
-            }
-        }
+        const randomPointIndex = Math.floor(Math.random() * possiblePoints.length);
+        const t = randomPointIndex / 30;
+        const randomPoint = possiblePoints.splice(randomPointIndex, 1)[0]!;
+        const tangent = bezierTangent(
+          randomEdge.start.position.xz,
+          randomEdge.controlPoint1,
+          randomEdge.controlPoint2,
+          randomEdge.end.position.xz,
+          t,
+        );
+
+        const building = this.tryCreateBuilding(randomPoint, tangent);
+        this.buildings.push(building);
+      }
     }
 
-    private createBuilding(x: number, z: number, height: number): Building {
-        let buildingHeight = this.randomInt(0.3, 0.6);
-        let buildingWidth = this.randomInt(0.5, 1);
-        let buildingDepth = this.randomInt(0.5, 1);
-        let color = d.vec3f(Math.random(), Math.random(), Math.random());
-        let shape = meshes.box({ width: buildingWidth, height: buildingHeight, depth: buildingDepth });
-        return {
-            position: d.vec3f(x, height + buildingHeight / 2, z),
-            dimensions: d.vec3f(buildingWidth, buildingHeight, buildingDepth),
-            color: color,
-            mesh: null,
-            shape: shape
-        };
+    for (let i = 0; i < loneBuildingsTries; i++) {
+      const randomEdgeIndex = Math.floor(Math.random() * possibleEdges.length);
+      const edge = possibleEdges[randomEdgeIndex];
+      possibleEdges.splice(randomEdgeIndex, 1);
+
+      const t = 0.1 + Math.random() * 0.8;
+      const point = bezierPoint(
+        edge.start.position.xz,
+        edge.controlPoint1,
+        edge.controlPoint2,
+        edge.end.position.xz,
+        t,
+      );
+      const tangent = bezierTangent(
+        edge.start.position.xz,
+        edge.controlPoint1,
+        edge.controlPoint2,
+        edge.end.position.xz,
+        t,
+      );
+      this.buildings.push(this.tryCreateBuilding(point, tangent));
     }
+  }
 
-    private randomInt(min: number, max: number): number {
-        return Math.floor(Math.random() * (max - min + 1)) + min;
+  private tryCreateBuilding(edgePoint: d.v2f, tangent: d.v2f): Building {
+    let buildingHeight = this.randomInt(0.3, 0.6);
+    let buildingWidth = this.randomInt(0.5, 1);
+    let buildingDepth = this.randomInt(0.5, 1);
+    let color = d.vec3f(Math.random(), Math.random(), Math.random());
+    let shape = meshes.box({ width: buildingWidth, height: buildingHeight, depth: buildingDepth });
+
+    const tangentLength = Math.sqrt(tangent.x * tangent.x + tangent.y * tangent.y);
+    const direction =
+      tangentLength > 0
+        ? d.vec2f(tangent.x / tangentLength, tangent.y / tangentLength)
+        : d.vec2f(0, 1);
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const normal = d.vec2f(-direction.y * side, direction.x * side);
+    const roadEdgeOffset = 0.25 + buildingDepth / 2 + 0.1;
+    const x = edgePoint.x + normal.x * roadEdgeOffset;
+    const z = edgePoint.y + normal.y * roadEdgeOffset;
+    const height = this.mapGenerator.getHeightAtWorldPosition(d.vec3f(x, 0, z));
+    const yaw = Math.atan2(direction.x, direction.y);
+
+    const cosYaw = Math.abs(Math.cos(yaw));
+    const sinYaw = Math.abs(Math.sin(yaw));
+    const rotatedDimensions = d.vec3f(
+      buildingWidth * cosYaw + buildingDepth * sinYaw,
+      buildingHeight,
+      buildingWidth * sinYaw + buildingDepth * cosYaw,
+    );
+
+    this.collisionSystem.register(
+      d.vec3f(x, height + buildingHeight / 2, z),
+      rotatedDimensions,
+    );
+
+    return {
+      position: d.vec3f(x, height + buildingHeight / 2, z),
+      dimensions: d.vec3f(buildingWidth, buildingHeight, buildingDepth),
+      color: color,
+      mesh: null,
+      rotation: d.vec4f(0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)),
+      shape: shape,
+    };
+  }
+
+  private randomInt(min: number, max: number): number {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  public addToPool(pool: meshPool.MeshPool<{}>, encoder: TgpuCommandEncoder) {
+    for (const building of this.buildings) {
+      building.mesh = pool.add(building.shape, encoder);
+      this.things.add(building.mesh, {
+        position: building.position,
+        rotation: building.rotation,
+        ...materials.matte(building.color),
+      });
     }
+    this.things.flush();
+    return this.buildings.map((b) => b.mesh);
+  }
 
-    private heightAt(x: number, z: number, mapWidth: number, mapHeight: number): number {
-        const minX = -Math.floor(mapWidth / 2);
-        const minZ = -Math.floor(mapHeight / 2);
-        const maxX = Math.ceil(mapWidth / 2) - 1;
-        const maxZ = Math.ceil(mapHeight / 2) - 1;
-        const x0 = Math.max(minX, Math.min(maxX, Math.floor(x)));
-        const z0 = Math.max(minZ, Math.min(maxZ, Math.floor(z)));
-        const x1 = Math.min(maxX, x0 + 1);
-        const z1 = Math.min(maxZ, z0 + 1);
-        const tx = x1 === x0 ? 0 : x - x0;
-        const tz = z1 === z0 ? 0 : z - z0;
+  public draw(
+    scene: passes.Description<{
+      readonly hdr: typeof passes.color;
+      readonly depth: typeof passes.depth;
+    }>,
+    light: lighting.Lighting,
+  ) {
+    const drawn = scene.add(this.things.renderer(light));
+    return drawn;
+  }
 
-        const sample = (sampleX: number, sampleZ: number) =>
-            this.mapGenerator.heightMap.get(`${sampleX},${sampleZ}`) ?? 0;
-        const h00 = sample(x0, z0);
-        const h10 = sample(x1, z0);
-        const h01 = sample(x0, z1);
-        const h11 = sample(x1, z1);
-        const h0 = h00 + (h10 - h00) * tx;
-        const h1 = h01 + (h11 - h01) * tx;
-
-        return h0 + (h1 - h0) * tz;
-    }
-
-    public addToPool(pool: meshPool.MeshPool<{}>, encoder: TgpuCommandEncoder) {
-        for (const building of this.buildings) {
-            building.mesh = pool.add(building.shape, encoder);
-            this.things.add(building.mesh, {position: building.position, ...materials.matte(building.color)});
-        }
-        this.things.flush();
-        return this.buildings.map(b => b.mesh);
-    }
-
-    public draw(scene: passes.Description<{
-        readonly hdr: typeof passes.color;
-        readonly depth: typeof passes.depth;
-        }>,
-        light: lighting.Lighting)
-    {
-        const drawn = scene.add(this.things.renderer(light));
-        return drawn;
-    }
-
-    public cast(shadow: lighting.Shadow, light: lighting.Lighting)
-    {
-        const casted = shadow.add(this.things.renderer(light));
-        return casted;
-    }
+  public cast(shadow: lighting.Shadow, light: lighting.Lighting) {
+    const casted = shadow.add(this.things.renderer(light));
+    return casted;
+  }
 }
