@@ -198,7 +198,6 @@ export class Car {
     }
 
     public setDrifts(drifts: boolean) {
-        console.log(this.groundType);
         this.drifts = this.groundType === "road" && drifts;
     }
 }

@@ -55,7 +55,7 @@ const collisionSystem = new CollisionSystem(root, mapGenerator, roadGenerator);
 const carManager = new CarManager(root, pool);
 const treeGenerator = new TreeGenerator(root, pool, mapGenerator, collisionSystem, 5000);
 const townsGenerator = new TownsGenerator(root, pool, mapGenerator, roadGenerator, collisionSystem, 5, 3, 5);
-const player = new Player(root, collisionSystem, carManager, surface, canvas, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.1, 0.008, 0.2));
+const player = new Player(root, collisionSystem, carManager, surface, canvas, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.06, 0.008, 0.132));
 
 const skidSystem = new SkidMarkSystem(root, carManager, pool);
 
