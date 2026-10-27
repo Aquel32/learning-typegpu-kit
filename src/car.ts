@@ -4,6 +4,7 @@ import { d, type TgpuCommandEncoder, type TgpuRenderPipeline, type TgpuRoot } fr
 import { Fragment, gravityMultiplier, Vertex } from "./static";
 import { CollisionObject, type CollisionSystem } from "./collision";
 import { MapGenerator } from "./map";
+import type { GroundType } from "./road";
 
 export class Car {
     private modelName = "sedan-sports-packed.glb";
@@ -18,7 +19,7 @@ export class Car {
 
     private positionUniform;
     private rotationUniform;
-    private drifts: boolean;
+    public drifts: boolean;
     public yaw: number;
 
     private steeringAngleMultiplier: number;
@@ -27,6 +28,8 @@ export class Car {
 
     private collisionObject: CollisionObject;
     public instanceId: number | null;
+
+    public groundType: GroundType;
 
     constructor(root: TgpuRoot, collisionSystem: CollisionSystem, position: d.v3f, forward: d.v3f, velocity: d.v3f, mass: number, dimensions: d.v3f) {
         "use gpu";
@@ -48,14 +51,17 @@ export class Car {
         
         this.collisionObject = collisionSystem.register(this.position, this.dimensions);
         this.instanceId = null;
+
+        this.groundType = "air";
     }
 
     public update(deltaTime: number) {
         this.applyForce(d.vec3f(0, -gravityMultiplier * this.mass, 0), deltaTime);
 
         const collisionInfo = this.collisionObject.checkCollision();
-        const groundHeight = collisionInfo.ground ?? 0;
-        if(collisionInfo.ground !== null) {
+        const groundHeight = collisionInfo.groundHeight ?? 0;
+        this.groundType = collisionInfo.groundType;
+        if(collisionInfo.groundHeight !== null) {
             if(this.position.y <= groundHeight + this.dimensions.y / 2) {
                 this.position = d.vec3f(this.position.x, groundHeight + this.dimensions.y / 2, this.position.z);
                 this.velocity = d.vec3f(this.velocity.x, 0, this.velocity.z);
@@ -118,7 +124,8 @@ export class Car {
             sidewaysVelocity.x ** 2 + sidewaysVelocity.z ** 2,
         );
         this.isSkidding =
-            collisionInfo.ground !== null &&
+            collisionInfo.groundType === "road" &&
+            collisionInfo.groundHeight !== null &&
             this.drifts &&
             speed > 1 &&
             sidewaysSpeed > 0.25;
@@ -191,7 +198,8 @@ export class Car {
     }
 
     public setDrifts(drifts: boolean) {
-        this.drifts = drifts;
+        console.log(this.groundType);
+        this.drifts = this.groundType === "road" && drifts;
     }
 }
 

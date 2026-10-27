@@ -75,7 +75,6 @@ export class SkidMarkSystem {
             MAX_SKID_MARKS,
         );
         this.skidMarksUniform.write(this.skidMarks);
-        console.log(skidMarkIndex, this.skidMarks[skidMarkIndex]);
     }
 
   public at = (vertexIndex: number, _instanceIndex: number) => {

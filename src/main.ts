@@ -49,9 +49,9 @@ const pool = meshPool.create(root, { capacity: 64 });
 
 const mapGenerator = new MapGenerator(root, pool);
 await mapGenerator.loadHeightMap();
-const collisionSystem = new CollisionSystem(root, mapGenerator);
 
-const roadGenerator = new RoadGenerator(root, pool, mapGenerator, 7, d.vec3f(0,0.01,0));
+const roadGenerator = new RoadGenerator(root, pool, mapGenerator, 6, d.vec3f(0,0.01,0));
+const collisionSystem = new CollisionSystem(root, mapGenerator, roadGenerator);
 const carManager = new CarManager(root, pool);
 const treeGenerator = new TreeGenerator(root, pool, mapGenerator, collisionSystem, 5000);
 const townsGenerator = new TownsGenerator(root, pool, mapGenerator, roadGenerator, collisionSystem, 5, 3, 5);

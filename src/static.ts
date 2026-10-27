@@ -24,3 +24,5 @@ export const RoadEdge = d.struct({
 });
 
 export const gravityMultiplier = d.f32(9.0);
+
+export const roadWidth = d.f32(0.5);

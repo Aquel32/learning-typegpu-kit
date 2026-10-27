@@ -1,6 +1,7 @@
 import { d, type TgpuRoot } from "typegpu";
 import type { MapGenerator } from "./map";
-import { CHUNK_SIZE } from "./static";
+import { CHUNK_SIZE, roadWidth } from "./static";
+import type { GroundType, RoadGenerator } from "./road";
 
 export type CollisionAABB = {
     min: d.v3f;
@@ -8,7 +9,8 @@ export type CollisionAABB = {
 };
 
 export type CollisionInfo = {
-    ground: number | null;
+    groundHeight: number | null;
+    groundType: GroundType;
     objects: CollisionObject[] | null;
     isEmpty: boolean;
 };
@@ -55,12 +57,14 @@ export class CollisionSystem {
     private registry: CollisionObject[];
     private chunks: Map<string, CollisionObject[]>;
     public mapGenerator: MapGenerator;
+    public roadGenerator: RoadGenerator;
 
-    constructor(root: TgpuRoot, mapGenerator: MapGenerator) {
+    constructor(root: TgpuRoot, mapGenerator: MapGenerator, roadGenerator: RoadGenerator) {
         this.registry = [];
         this.chunks = new Map();
 
         this.mapGenerator = mapGenerator;
+        this.roadGenerator = roadGenerator;
     }
 
     public register(position: d.v3f, dimensions: d.v3f) {
@@ -100,8 +104,9 @@ export class CollisionSystem {
 
     public checkObjectCollision(collisionObject: CollisionObject): CollisionInfo {
         const chunk = collisionObject.chunk;
-        let ground: number | null = null;
+        let groundHeight: number | null = this.mapGenerator.getHeightAtWorldPosition(collisionObject.position);
         let objects: CollisionObject[] = [];
+        let groundType: GroundType = "air";
 
         for (let x = chunk.x - 1; x <= chunk.x + 1; x++) {
             for (let y = chunk.y - 1; y <= chunk.y + 1; y++) {
@@ -116,12 +121,18 @@ export class CollisionSystem {
             }
         }
 
-        const groundHeight = this.mapGenerator.getHeightAtWorldPosition(collisionObject.position);
         if(collisionObject.AABB.min.y <= groundHeight) {
-            ground = groundHeight;
+            groundType = "grass"; // todo: change this to data from mapGenerator
         }
 
-        return { ground, objects, isEmpty: objects.length === 0 && ground === null };
+        if (groundType !== "air") {
+            const distanceSquared = this.roadGenerator.getDistanceToClosestEdge(collisionObject.position);
+            if (distanceSquared <= (roadWidth / 2) ** 2) {
+                groundType = "road";
+            }
+        }
+
+        return { groundHeight, groundType, objects, isEmpty: objects.length === 0 };
     }
 
     private aabbIntersect(a: CollisionAABB, b: CollisionAABB): boolean {

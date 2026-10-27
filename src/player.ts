@@ -9,7 +9,6 @@ export class Player {
     public car: Car;
 
     private pressedKeys: Set<string> = new Set();
-    public drifts: boolean;
     public view: cameras.OrbitCamera;
 
     public handleKeyDown(event: KeyboardEvent) {
@@ -24,8 +23,6 @@ export class Player {
 
         document.addEventListener("keydown", (event) => this.handleKeyDown(event));
         document.addEventListener("keyup", (event) => this.handleKeyUp(event));
-
-        this.drifts = false;
 
         carManager.registerCar(this.car);
 
@@ -44,7 +41,7 @@ export class Player {
         const carForward = this.car.getForward();
         this.view.goal.target = this.car.position.add(d.vec3f(0, 0.1, 0));
         this.view.goal.yaw = std.atan2(-carForward.x, -carForward.z);
-        this.view.goal.fov = this.drifts ? Math.PI / 2 : Math.PI / 3;
+        this.view.goal.fov = this.car.drifts ? Math.PI / 2 : Math.PI / 3;
         this.view.update(deltaTime);
     }
     
@@ -65,8 +62,7 @@ export class Player {
         if (this.pressedKeys.has("d")) {
             steering -= 1;
         }
-        this.drifts = this.pressedKeys.has("shift");
-        this.car.setDrifts(this.drifts);
+        this.car.setDrifts(this.pressedKeys.has("shift"));
 
         this.car.steer(steering, deltaTime);
         this.car.applyForce(

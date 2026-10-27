@@ -1,10 +1,12 @@
 import { camera, lighting, materials, meshPool, passes, shading } from "@typegpu/kit";
 import { meshes } from "@typegpu/kit/geometry";
 import { d, std, tgpu, type TgpuCommandEncoder, type TgpuRoot, type TgpuUniform } from "typegpu";
-import { Fragment, RoadNode, Vertex, RoadEdge, MAP_HEIGHT, MAP_WIDTH } from "./static";
+import { Fragment, RoadNode, Vertex, RoadEdge, MAP_HEIGHT, MAP_WIDTH, roadWidth } from "./static";
 import type { MapGenerator } from "./map";
 
 type RoadVertex = d.Infer<typeof meshes.Surface>;
+
+export type GroundType = "air" | "road" | "grass";
 
 export class RoadGenerator {
   private nodes: d.Infer<typeof RoadNode>[];
@@ -36,10 +38,9 @@ export class RoadGenerator {
     this.network = this.getBiggestComponent();
 
     const vertexData: RoadVertex[] = [];
-    const roadWidth = 0.5;
 
     for (const RoadEdge of this.edges) {
-      const roadMeshVertices = this.generateRoadMesh(RoadEdge, roadWidth);
+      const roadMeshVertices = this.generateRoadMesh(RoadEdge);
       vertexData.push(...roadMeshVertices);
     }
 
@@ -135,6 +136,88 @@ export class RoadGenerator {
     return d.vec3f(direction.x, 0, direction.y);
   }
 
+  public getClosestNode(position: d.v3f): d.Infer<typeof RoadNode> | null {
+    "use gpu";
+
+    if (this.nodes.length <= 0) {
+      return null;
+    }
+
+    let closestNode: d.Infer<typeof RoadNode> | null = null;
+    let closestDistance = Infinity;
+
+    for (const node of this.nodes) {
+      const distanceX = node.position.x - position.x;
+      const distanceZ = node.position.z - position.z;
+      const distance = distanceX * distanceX + distanceZ * distanceZ;
+
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestNode = node;
+      }
+    }
+
+    return closestNode;
+  }
+
+  public getClosestEdge(position: d.v3f): d.Infer<typeof RoadEdge> | null {
+    "use gpu";
+
+    if (this.edges.length <= 0) {
+      return null;
+    }
+
+    let closestEdge: d.Infer<typeof RoadEdge> | null = null;
+    let closestDistance = Infinity;
+
+    for (const edge of this.edges) {
+      const distance = this.getDistanceToEdge(position, edge);
+
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestEdge = edge;
+      }
+    }
+
+    return closestEdge;
+  }
+
+  public getDistanceToClosestEdge(position: d.v3f): number {
+    "use gpu";
+
+    let closestDistance = Infinity;
+    for (const edge of this.edges) {
+      closestDistance = Math.min(closestDistance, this.getDistanceToEdge(position, edge));
+    }
+
+    return closestDistance;
+  }
+
+  private getDistanceToEdge(position: d.v3f, edge: d.Infer<typeof RoadEdge>): number {
+    const points = this.getEdgePoints(edge, 100);
+    let closestDistance = Infinity;
+
+    for (let index = 0; index < points.length - 1; index++) {
+      const start = points[index]!;
+      const end = points[index + 1]!;
+      const segmentX = end.x - start.x;
+      const segmentZ = end.y - start.y;
+      const segmentLengthSquared = segmentX * segmentX + segmentZ * segmentZ;
+      const pointX = position.x - start.x;
+      const pointZ = position.z - start.y;
+      const segmentPosition = segmentLengthSquared > 0
+        ? Math.max(0, Math.min(1, (pointX * segmentX + pointZ * segmentZ) / segmentLengthSquared))
+        : 0;
+      const closestX = start.x + segmentPosition * segmentX;
+      const closestZ = start.y + segmentPosition * segmentZ;
+      const distanceX = position.x - closestX;
+      const distanceZ = position.z - closestZ;
+      closestDistance = Math.min(closestDistance, distanceX * distanceX + distanceZ * distanceZ);
+    }
+
+    return closestDistance;
+  }
+
   // PROCEDURAL GENERATION BELOW
 
   private getNodes(step: number): d.Infer<typeof RoadNode>[] {
@@ -142,11 +225,14 @@ export class RoadGenerator {
 
     for (let x = -MAP_WIDTH / 2 + step / 2; x < MAP_WIDTH / 2 - step / 2; x += step) {
       for (let z = -MAP_HEIGHT / 2 + step / 2; z < MAP_HEIGHT / 2 - step / 2; z += step) {
-        const groundHeight = this.mapGenerator.getHeightAtWorldPosition(d.vec3f(x, 0, z));
+        const randomOffsetX = Math.random() * (step / 3) - (step / 3);
+        const randomOffsetZ = Math.random() * (step / 3) - (step / 3);
+
+        const groundHeight = this.mapGenerator.getHeightAtWorldPosition(d.vec3f(x + randomOffsetX, 0, z + randomOffsetZ));
         if (groundHeight !== 0) continue;
 
         nodes.push({
-          position: d.vec3f(x, groundHeight, z),
+          position: d.vec3f(x + randomOffsetX, groundHeight, z + randomOffsetZ),
         });
       }
     }
@@ -307,7 +393,7 @@ export class RoadGenerator {
   //     return vertices;
   //   }
 
-  private generateRoadMesh(edge: d.Infer<typeof RoadEdge>, roadWidth: number): RoadVertex[] {
+  private generateRoadMesh(edge: d.Infer<typeof RoadEdge>): RoadVertex[] {
     const stripVertices: RoadVertex[] = [];
     const segments = 30;
     let previousLeft: RoadVertex | undefined;
@@ -442,9 +528,8 @@ export class RoadGenerator {
     return false;
   }
 
-  public getEdgePoints(edge: d.Infer<typeof RoadEdge>): d.v2f[] {
+  public getEdgePoints(edge: d.Infer<typeof RoadEdge>, segments: number = 30): d.v2f[] {
     const points: d.v2f[] = [];
-    const segments = 30;
 
     for (let i = 0; i <= segments; i++) {
       points.push(
