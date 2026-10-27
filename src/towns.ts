@@ -4,6 +4,7 @@ import { d, type TgpuCommandEncoder, type TgpuRoot } from "typegpu";
 import { meshes } from "@typegpu/kit/geometry";
 import { bezierPoint, bezierTangent, type RoadGenerator } from "./road";
 import type { CollisionSystem } from "./collision";
+import { roadWidth } from "./static";
 
 type Building = {
   position: d.v3f;
@@ -55,15 +56,14 @@ export class TownsGenerator {
       const randomEdge = possibleEdges[randomEdgeIndex];
       possibleEdges.splice(randomEdgeIndex, 1);
 
-      const possiblePoints = roadGenerator.getEdgePoints(randomEdge);
-
+      const possiblePoints = roadGenerator.getEdgePoints(randomEdge, 10);
       for (let j = 0; j < buildingsPerTownTries; j++) {
         if (possiblePoints.length === 0) {
           break;
         }
 
-        const randomPointIndex = Math.floor(Math.random() * possiblePoints.length);
-        const t = randomPointIndex / 30;
+        const randomPointIndex = this.randomInt(2, possiblePoints.length - 3) % possiblePoints.length;
+        const t = randomPointIndex / 10;
         const randomPoint = possiblePoints.splice(randomPointIndex, 1)[0]!;
         const tangent = bezierTangent(
           randomEdge.start.position.xz,
@@ -103,6 +103,8 @@ export class TownsGenerator {
   }
 
   private tryCreateBuilding(edgePoint: d.v2f, tangent: d.v2f): Building {
+    "use gpu";
+
     let buildingHeight = this.randomInt(0.3, 0.6);
     let buildingWidth = this.randomInt(0.5, 1);
     let buildingDepth = this.randomInt(0.5, 1);
@@ -116,24 +118,31 @@ export class TownsGenerator {
         : d.vec2f(0, 1);
     const side = Math.random() < 0.5 ? -1 : 1;
     const normal = d.vec2f(-direction.y * side, direction.x * side);
-    const roadEdgeOffset = 0.25 + buildingDepth / 2 + 0.1;
-    const x = edgePoint.x + normal.x * roadEdgeOffset;
-    const z = edgePoint.y + normal.y * roadEdgeOffset;
+
+    const roadEdgeOffset = d.vec3f(
+      buildingWidth + roadWidth,
+      0,
+      buildingDepth + roadWidth,
+    );
+
+
+    const x = edgePoint.x + normal.x * roadEdgeOffset.x;
+    const z = edgePoint.y + normal.y * roadEdgeOffset.z;
     const height = this.mapGenerator.getHeightAtWorldPosition(d.vec3f(x, 0, z));
     const yaw = Math.atan2(direction.x, direction.y);
 
-    const cosYaw = Math.abs(Math.cos(yaw));
-    const sinYaw = Math.abs(Math.sin(yaw));
-    const rotatedDimensions = d.vec3f(
-      buildingWidth * cosYaw + buildingDepth * sinYaw,
-      buildingHeight,
-      buildingWidth * sinYaw + buildingDepth * cosYaw,
-    );
+    // const cosYaw = Math.abs(Math.cos(yaw));
+    // const sinYaw = Math.abs(Math.sin(yaw));
+    // const rotatedDimensions = d.vec3f(
+    //   buildingWidth * cosYaw + buildingDepth * sinYaw,
+    //   buildingHeight,
+    //   buildingWidth * sinYaw + buildingDepth * cosYaw,
+    // );
 
-    this.collisionSystem.register(
-      d.vec3f(x, height + buildingHeight / 2, z),
-      rotatedDimensions,
-    );
+    // this.collisionSystem.register(
+    //   d.vec3f(x, height + buildingHeight / 2, z),
+    //   rotatedDimensions,
+    // );
 
     return {
       position: d.vec3f(x, height + buildingHeight / 2, z),
