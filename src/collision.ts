@@ -11,7 +11,7 @@ export type CollisionAABB = {
 export type CollisionInfo = {
     groundHeight: number | null;
     groundType: GroundType;
-    objects: CollisionObject[] | null;
+    objects: CollisionObject[];
     isEmpty: boolean;
 };
 
@@ -20,7 +20,7 @@ export class CollisionObject {
     public dimensions: d.v3f;
     public AABB: CollisionAABB;
     public chunk: d.v2f;
-    private collisionSystem: CollisionSystem;
+    public collisionSystem: CollisionSystem;
 
     constructor(collisionSystem: CollisionSystem, position: d.v3f, dimensions: d.v3f, chunk: d.v2f) {
         this.collisionSystem = collisionSystem;
@@ -125,14 +125,22 @@ export class CollisionSystem {
             groundType = "grass"; // todo: change this to data from mapGenerator
         }
 
-        if (groundType !== "air") {
-            const distanceSquared = this.roadGenerator.getDistanceToClosestEdge(collisionObject.position);
-            if (distanceSquared <= (roadWidth / 2) ** 2) {
-                groundType = "road";
-            }
+        if (groundType !== "air") { // in future there might be diffrent ground types
+            groundType = this.getGroundTypeAtPosition(collisionObject.position);
         }
 
         return { groundHeight, groundType, objects, isEmpty: objects.length === 0 };
+    }
+
+    public getGroundTypeAtPosition(position: d.v3f): GroundType {
+        let groundType: GroundType = "grass";
+
+        const distanceSquared = this.roadGenerator.getDistanceToClosestEdge(position);
+        if (distanceSquared <= (roadWidth / 2) ** 2) {
+            groundType = "road";
+        }
+
+        return groundType;
     }
 
     private aabbIntersect(a: CollisionAABB, b: CollisionAABB): boolean {

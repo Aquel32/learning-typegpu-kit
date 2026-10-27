@@ -6,6 +6,12 @@ import { CollisionObject, type CollisionSystem } from "./collision";
 import { MapGenerator } from "./map";
 import type { GroundType } from "./road";
 
+export type Wheel = {
+    position: d.v3f;
+    offset: d.v3f;
+    groundType: GroundType;
+}
+
 export class Car {
     private modelName = "sedan-sports-packed.glb";
     public model: meshPool.Model | null;
@@ -31,6 +37,8 @@ export class Car {
 
     public groundType: GroundType;
 
+    public wheels: Wheel[];
+
     constructor(root: TgpuRoot, collisionSystem: CollisionSystem, position: d.v3f, forward: d.v3f, velocity: d.v3f, mass: number, dimensions: d.v3f) {
         "use gpu";
         this.position = d.vec3f(position.x, position.y + dimensions.y / 2, position.z);
@@ -53,6 +61,13 @@ export class Car {
         this.instanceId = null;
 
         this.groundType = "air";
+
+        this.wheels = [
+            { position: d.vec3f(0, 0, 0), offset: d.vec3f(-dimensions.x / 2, -dimensions.y / 2, -dimensions.z / 2), groundType: "air" },
+            { position: d.vec3f(0, 0, 0), offset: d.vec3f(dimensions.x / 2, -dimensions.y / 2, -dimensions.z / 2), groundType: "air" },
+            { position: d.vec3f(0, 0, 0), offset: d.vec3f(-dimensions.x / 2, -dimensions.y / 2, dimensions.z / 2), groundType: "air" },
+            { position: d.vec3f(0, 0, 0), offset: d.vec3f(dimensions.x / 2, -dimensions.y / 2, dimensions.z / 2), groundType: "air" },
+        ];
     }
 
     public update(deltaTime: number) {
@@ -157,6 +172,11 @@ export class Car {
 
         this.positionUniform.write(this.position);
 
+        for(const wheel of this.wheels) {
+            wheel.position = this.getWheelPosition(this.position, this.yaw, wheel);
+            wheel.groundType = this.collisionObject.collisionSystem.getGroundTypeAtPosition(wheel.position);
+        }
+
         return {
             position: this.position,
             rotation: this.rotation,
@@ -199,6 +219,16 @@ export class Car {
 
     public setDrifts(drifts: boolean) {
         this.drifts = this.groundType === "road" && drifts;
+    }
+
+    public getWheelPosition(position: d.v3f, yaw: number, wheel: Wheel) {
+        const sin = Math.sin(yaw);
+        const cos = Math.cos(yaw);
+        return d.vec3f(
+            position.x + wheel.offset.x * cos + wheel.offset.y * sin,
+            position.y + wheel.offset.z,
+            position.z - wheel.offset.x * sin + wheel.offset.y * cos,
+        );
     }
 }
 

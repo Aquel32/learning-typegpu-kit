@@ -67,39 +67,27 @@ export class SkidMarkSystem {
             return;
         }
 
-        const currentPosition = car.position;
+        console.log(car.wheels.filter(wheel => wheel.groundType !== "road").length);
+        for (const wheel of car.wheels) {
+          if(wheel.groundType !== "road")
+          {
+            continue;
+          }
 
-        const wheelOffsets = [
-            d.vec2f(-car.dimensions.x / 2, -car.dimensions.z / 2),
-            d.vec2f(car.dimensions.x / 2, -car.dimensions.z / 2),
-            d.vec2f(-car.dimensions.x / 2, car.dimensions.z / 2),
-            d.vec2f(car.dimensions.x / 2, car.dimensions.z / 2),
-        ];
-
-        for (const offset of wheelOffsets) {
-            const currentWheelPosition = this.getWheelPosition(currentPosition, car.yaw, offset);
-            const previousWheelPosition = this.getWheelPosition(previousState.position, previousState.yaw, offset);
+            const currentWheelPosition = wheel.position;
+            const previousWheelPosition = car.getWheelPosition(previousState.position, previousState.yaw, wheel);
 
             this.addSkidMark(d.vec4f(
                 currentWheelPosition.x,
-                currentWheelPosition.y,
+                currentWheelPosition.z,
                 previousWheelPosition.x,
-                previousWheelPosition.y,
+                previousWheelPosition.z,
             ));
         }
         this.skidMarksUniform.write(this.skidMarks);
     }
 
-    private getWheelPosition(position: d.v3f, yaw: number, offset: d.v2f) {
-        const sin = Math.sin(yaw);
-        const cos = Math.cos(yaw);
-
-        return d.vec2f(
-            position.x + offset.x * cos + offset.y * sin,
-            position.z - offset.x * sin + offset.y * cos,
-        );
-    }
-
+    
     private addSkidMark(data: d.v4f)
     {
       const skidMarkIndex = this.nextSkidMark;

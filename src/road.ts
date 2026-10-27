@@ -194,7 +194,7 @@ export class RoadGenerator {
   }
 
   private getDistanceToEdge(position: d.v3f, edge: d.Infer<typeof RoadEdge>): number {
-    const points = this.getEdgePoints(edge, 100);
+    const points = this.getEdgePoints(edge, 10);
     let closestDistance = Infinity;
 
     for (let index = 0; index < points.length - 1; index++) {
