@@ -8,7 +8,7 @@ import type { GroundType } from "./road";
 
 export type Wheel = {
     position: d.v3f;
-    offset: d.v3f;
+    offset: d.v2f;
     groundType: GroundType;
 }
 
@@ -63,10 +63,10 @@ export class Car {
         this.groundType = "air";
 
         this.wheels = [
-            { position: d.vec3f(0, 0, 0), offset: d.vec3f(-dimensions.x / 2, -dimensions.y / 2, -dimensions.z / 2), groundType: "air" },
-            { position: d.vec3f(0, 0, 0), offset: d.vec3f(dimensions.x / 2, -dimensions.y / 2, -dimensions.z / 2), groundType: "air" },
-            { position: d.vec3f(0, 0, 0), offset: d.vec3f(-dimensions.x / 2, -dimensions.y / 2, dimensions.z / 2), groundType: "air" },
-            { position: d.vec3f(0, 0, 0), offset: d.vec3f(dimensions.x / 2, -dimensions.y / 2, dimensions.z / 2), groundType: "air" },
+            { position: d.vec3f(0, 0, 0), offset: d.vec2f(-dimensions.x / 2, -dimensions.z / 2), groundType: "air" },
+            { position: d.vec3f(0, 0, 0), offset: d.vec2f(dimensions.x / 2, -dimensions.z / 2), groundType: "air" },
+            { position: d.vec3f(0, 0, 0), offset: d.vec2f(-dimensions.x / 2, dimensions.z / 2), groundType: "air" },
+            { position: d.vec3f(0, 0, 0), offset: d.vec2f(dimensions.x / 2, dimensions.z / 2), groundType: "air" },
         ];
     }
 
@@ -226,7 +226,7 @@ export class Car {
         const cos = Math.cos(yaw);
         return d.vec3f(
             position.x + wheel.offset.x * cos + wheel.offset.y * sin,
-            position.y + wheel.offset.z,
+            position.y,
             position.z - wheel.offset.x * sin + wheel.offset.y * cos,
         );
     }
