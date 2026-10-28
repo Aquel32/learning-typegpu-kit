@@ -6,7 +6,7 @@ import { bezierPoint, bezierTangent, type RoadGenerator } from "./road";
 import type { CollisionSystem } from "./collision";
 import { roadWidth } from "./static";
 
-type Building = {
+export type Building = {
   position: d.v3f;
   dimensions: d.v3f;
   color: d.v3f;
@@ -185,5 +185,10 @@ export class TownsGenerator {
   public cast(shadow: lighting.Shadow, light: lighting.Lighting) {
     const casted = shadow.add(this.things.renderer(light));
     return casted;
+  }
+
+  public getRandomBuilding(): Building {
+    const randomIndex = Math.floor(Math.random() * this.buildings.length);
+    return this.buildings[randomIndex];
   }
 }

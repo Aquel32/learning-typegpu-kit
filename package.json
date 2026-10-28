@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@typegpu/color": "^0.12.1",
-    "@typegpu/kit": "^0.0.0",
+    "@typegpu/kit": "^0.0.1",
     "@typegpu/noise": "^0.12.1",
     "@typegpu/sdf": "^0.12.1",
     "typegpu": "^0.12.8"
@@ -21,7 +21,7 @@
   "devDependencies": {
     "@webgpu/types": "^0.1.70",
     "eslint-plugin-typegpu": "^0.12.1",
-    "oxfmt": "^0.49.0",
+    "oxfmt": "^0.75.0",
     "oxlint": "^1.64.0",
     "typescript": "npm:tsover@6.0.2",
     "unplugin-typegpu": "^0.12.6",

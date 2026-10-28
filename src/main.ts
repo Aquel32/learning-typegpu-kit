@@ -13,6 +13,7 @@ import {
   post,
   shading,
   targets,
+  trails,
 } from "@typegpu/kit";
 import * as web from "@typegpu/kit/web";
 import { meshes } from "@typegpu/kit/geometry";
@@ -27,6 +28,8 @@ import { TownsGenerator } from "./towns";
 import { CollisionSystem } from "./collision";
 import { SkidMarkSystem } from "./skidMarks";
 import { ParticleSystem } from "./particleSystem";
+import { NPCController } from "./npc";
+import { MissionController } from "./missions";
 
 const root = await tgpu.init();
 
@@ -59,6 +62,7 @@ const collisionSystem = new CollisionSystem(root, mapGenerator, roadGenerator);
 const carManager = new CarManager(root, pool);
 const treeGenerator = new TreeGenerator(root, pool, mapGenerator, collisionSystem, 5000);
 const townsGenerator = new TownsGenerator(root, pool, mapGenerator, roadGenerator, collisionSystem, 5, 3, 5);
+const npcController = new NPCController(root, pool);
 const player = new Player(root, collisionSystem, carManager, surface, canvas, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.06, 0.008, 0.132));
 
 const sim = clock.fixedStep({ step: 1 / 60 });
@@ -78,6 +82,7 @@ roadGenerator.addToPool(pool, encoder);
 await treeGenerator.addToPool(pool);
 townsGenerator.addToPool(pool, encoder);
 skidSystem.addToPool(pool, encoder);
+await npcController.addToPool(pool);
 encoder.submit();
 
 const scene = passes
@@ -112,7 +117,16 @@ const skidDrawn = skidSystem.draw(scene, light);
 
 const tireSmokeDrawn = scene.add(tireSmoke.drawing);
 
-await Promise.all([scene.initAsync(), light.shadow.initAsync(), final.initAsync()]);
+const npcDrawn = npcController.draw(scene, light);
+const npcCast = npcController.cast(light.shadow, light);
+
+// const t =npcController.add(roadGenerator.getStartPosition(), d.vec4f(0, 1, 0, 0), "idle");
+// npcController.setNPCGoal(t, roadGenerator.getStartPosition().add(d.vec3f(10, 0, 10)));
+const missionController = new MissionController(root, player, npcController, townsGenerator);
+const mission = missionController.generateNewMission();
+player.car.position = mission.start.position.add(d.vec3f(2, 1, 0));
+
+await Promise.all([scene.initAsync(), light.shadow.initAsync(), final.initAsync(), npcController.initAsync()]);
 
 const loop = frames.create(root, (frame) => {
   "use gpu";
@@ -121,8 +135,12 @@ const loop = frames.create(root, (frame) => {
   carManager.update(frame.dt);
 
   skidSystem.update(tireSmoke, frame.dt);
+  // npcController.setNPCGoal(t, player.car.position.add(d.vec3f(0, player.car.dimensions.y / 2, 0)));
+  missionController.update(frame.dt);
+  npcController.update(frame.dt);
 
   const compute = frame.encoder.beginComputePass();
+  npcController.animate(compute, frame.time);
   tireSmoke.spawn(compute);
   for(let steps = sim.advance(frame.dt); steps > 0; steps--) {
     tireSmoke.step(compute);
@@ -130,8 +148,8 @@ const loop = frames.create(root, (frame) => {
   tireSmoke.compact(compute);
   compute.end();
 
-  light.shadow.record(frame.encoder, [mapCast, carsCast, treesCast, roadCast, townsCast]);
-  scene.record(frame, [skyboxDrawn, mapDrawn, carsDrawn, treesDrawn, roadDrawn, townsDrawn, skidDrawn, tireSmokeDrawn]);
+  light.shadow.record(frame.encoder, [mapCast, carsCast, treesCast, roadCast, townsCast, npcCast]);
+  scene.record(frame, [skyboxDrawn, mapDrawn, carsDrawn, treesDrawn, roadDrawn, townsDrawn, skidDrawn, tireSmokeDrawn, npcDrawn]);
 
   const output = frame.encoder.beginRenderPass({
     colorAttachments: { view: surface.view(frame) },

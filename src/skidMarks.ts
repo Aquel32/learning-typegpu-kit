@@ -9,6 +9,7 @@ const MAX_SKID_MARKS = 4000;
 const WHEEL_WIDTH = 0.01;
 
 export class SkidMarkSystem {
+    private root; 
     private carManager: CarManager;
     private pool: meshPool.MeshPool<{}>;
     private offsetUniform;
@@ -25,6 +26,7 @@ export class SkidMarkSystem {
     private previousStates: Map<Car, {position: d.v3f, yaw: number}>;
 
     constructor(root: TgpuRoot, carManager: CarManager, pool: meshPool.MeshPool<{}>) {
+        this.root = root;
         this.carManager = carManager;
         this.pool = pool;
         this.offsetUniform = root.createUniform(d.vec3f, d.vec3f(0, 0.01, 0));
