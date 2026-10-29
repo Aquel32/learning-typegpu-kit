@@ -141,18 +141,18 @@ export class TownsGenerator {
     const z = edgePoint.y + normal.y * roadEdgeOffset;
     const height = this.mapGenerator.getHeightAtWorldPosition(d.vec3f(x, 0, z));
 
-    const cosYaw = Math.cos(yaw);
-    const sinYaw = Math.sin(yaw);
-    const rotatedDimensions = d.vec3f(
-      Math.abs(buildingWidth * cosYaw) + Math.abs(buildingDepth * sinYaw),
-      buildingHeight,
-      Math.abs(buildingWidth * sinYaw) + Math.abs(buildingDepth * cosYaw),
-    );
+    // const cosYaw = Math.cos(yaw);
+    // const sinYaw = Math.sin(yaw);
+    // const rotatedDimensions = d.vec3f(
+    //   Math.abs(buildingWidth * cosYaw) + Math.abs(buildingDepth * sinYaw),
+    //   buildingHeight,
+    //   Math.abs(buildingWidth * sinYaw) + Math.abs(buildingDepth * cosYaw),
+    // );
 
-    this.collisionSystem.register(
-      d.vec3f(x, height + buildingHeight / 2, z),
-      rotatedDimensions,
-    );
+    // this.collisionSystem.register(
+    //   d.vec3f(x, height + buildingHeight / 2, z),
+    //   rotatedDimensions,
+    // );
 
     return {
       position: d.vec3f(x, height + buildingHeight / 2, z),

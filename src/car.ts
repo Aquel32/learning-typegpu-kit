@@ -19,6 +19,7 @@ export class Car {
     public position: d.v3f;
     public rotation: d.m4x4f;
     public velocity: d.v3f;
+    public speed: number;
     public mass: number;
     public dimensions: d.v3f;
     public isSkidding: boolean;
@@ -49,6 +50,7 @@ export class Car {
         this.dimensions = dimensions;
         this.isSkidding = false;
         this.model = null;
+        this.speed = 0;
 
         this.positionUniform = root.createUniform(d.vec3f, this.position);
         this.rotationUniform = root.createUniform(d.mat4x4f, this.rotation);
@@ -132,7 +134,7 @@ export class Car {
             0,
             this.velocity.z - forwardVelocity.z,
         );
-        const speed = Math.sqrt(
+        this.speed = Math.sqrt(
             this.velocity.x ** 2 + this.velocity.y ** 2 + this.velocity.z ** 2,
         );
         const sidewaysSpeed = Math.sqrt(
@@ -142,7 +144,7 @@ export class Car {
             collisionInfo.groundType === "road" &&
             collisionInfo.groundHeight !== null &&
             this.drifts &&
-            speed > 1 &&
+            this.speed > 1 &&
             sidewaysSpeed > 0.25;
         this.gripPower = Math.min(
             0.98,
@@ -168,7 +170,7 @@ export class Car {
             0.5,
             Math.max(0, this.steeringAngleMultiplier + (this.drifts ? 1 : -1) * deltaTime),
         );
-        this.steeringAngle = speed <= 0.1  ? 0: (1.5 / (speed + (1/2)) + this.steeringAngleMultiplier);
+        this.steeringAngle = this.speed <= 0.1  ? 0: (1.5 / (this.speed + (1/2)) + this.steeringAngleMultiplier);
 
         this.positionUniform.write(this.position);
 

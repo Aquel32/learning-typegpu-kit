@@ -38,3 +38,29 @@ canvas#minimap
     height: 100%;
     display: block;
 }
+
+div#speedometer-container
+{
+    position: absolute;
+    bottom: 20px;
+    right: 25px;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+#speed-text
+{
+    width: 100%;
+    text-align: center;
+    color: #fff;
+    font-size: 18px;
+    font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+#speed-unit
+{
+    text-align: center;
+    color: #fff;
+    font-size: 14px;
+    font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}

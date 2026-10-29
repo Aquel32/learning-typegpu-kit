@@ -65,7 +65,7 @@ const carManager = new CarManager(root, pool);
 const treeGenerator = new TreeGenerator(root, pool, mapGenerator, collisionSystem, 5000);
 const townsGenerator = new TownsGenerator(root, pool, mapGenerator, roadGenerator, collisionSystem, 5, 3, 5);
 const npcController = new NPCController(root, pool);
-const player = new Player(root, collisionSystem, carManager, surface, canvas, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.06, 0.008, 0.132));
+const player = new Player(root, collisionSystem, carManager, surface, canvas, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 20, d.vec3f(0.06, 0.008, 0.132));
 
 const minimap = new Minimap(root, mapGenerator, roadGenerator, townsGenerator, player);
 const navigation = new Navigation(roadGenerator, townsGenerator, player, minimap);
