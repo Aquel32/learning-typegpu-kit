@@ -12,6 +12,7 @@ export type Building = {
   dimensions: d.v3f;
   color: d.v3f;
   mesh: meshPool.Mesh | null;
+  yaw: number;
   rotation: d.v4f;
   shape: meshes.IndexedGeometry<
     d.WgslStruct<{
@@ -67,7 +68,7 @@ export class TownsGenerator {
         }
 
         const randomPointIndex =
-          this.randomInt(2, possiblePoints.length - 3) % possiblePoints.length;
+          this.randomInt(3, possiblePoints.length - 4) % possiblePoints.length;
         const t = randomPointIndex / 10;
         const randomPoint = possiblePoints.splice(randomPointIndex, 1)[0]!;
         const tangent = bezierTangent(
@@ -88,7 +89,7 @@ export class TownsGenerator {
       const edge = possibleEdges[randomEdgeIndex];
       possibleEdges.splice(randomEdgeIndex, 1);
 
-      const t = 0.1 + Math.random() * 0.8;
+      const t = 0.2 + Math.random() * 0.7;
       const point = bezierPoint(
         edge.start.position.xz,
         edge.controlPoint1,
@@ -117,6 +118,11 @@ export class TownsGenerator {
     let buildingHeight = this.randomInt(0.3, 0.6);
     let buildingWidth = this.randomInt(0.5, 1);
     let buildingDepth = this.randomInt(0.5, 1);
+
+    if(buildingWidth > buildingDepth) {
+      [buildingWidth, buildingDepth] = [buildingDepth, buildingWidth]; 
+    }
+
     let color = d.vec3f(Math.random(), Math.random(), Math.random());
     let shape = meshes.box({ width: buildingWidth, height: buildingHeight, depth: buildingDepth });
 
@@ -125,32 +131,33 @@ export class TownsGenerator {
       tangentLength > 0
         ? d.vec2f(tangent.x / tangentLength, tangent.y / tangentLength)
         : d.vec2f(0, 1);
+
     const side = Math.random() < 0.5 ? -1 : 1;
     const normal = d.vec2f(-direction.y * side, direction.x * side);
 
-    const roadEdgeOffset = d.vec3f(buildingWidth + roadWidth, 0, buildingDepth + roadWidth);
-
-    const x = edgePoint.x + normal.x * roadEdgeOffset.x;
-    const z = edgePoint.y + normal.y * roadEdgeOffset.z;
-    const height = this.mapGenerator.getHeightAtWorldPosition(d.vec3f(x, 0, z));
     const yaw = Math.atan2(direction.x, direction.y);
+    const roadEdgeOffset = buildingWidth / 2 + roadWidth / 2 + 0.3;
+    const x = edgePoint.x + normal.x * roadEdgeOffset;
+    const z = edgePoint.y + normal.y * roadEdgeOffset;
+    const height = this.mapGenerator.getHeightAtWorldPosition(d.vec3f(x, 0, z));
 
-    // const cosYaw = Math.abs(Math.cos(yaw));
-    // const sinYaw = Math.abs(Math.sin(yaw));
-    // const rotatedDimensions = d.vec3f(
-    //   buildingWidth * cosYaw + buildingDepth * sinYaw,
-    //   buildingHeight,
-    //   buildingWidth * sinYaw + buildingDepth * cosYaw,
-    // );
+    const cosYaw = Math.cos(yaw);
+    const sinYaw = Math.sin(yaw);
+    const rotatedDimensions = d.vec3f(
+      Math.abs(buildingWidth * cosYaw) + Math.abs(buildingDepth * sinYaw),
+      buildingHeight,
+      Math.abs(buildingWidth * sinYaw) + Math.abs(buildingDepth * cosYaw),
+    );
 
-    // this.collisionSystem.register(
-    //   d.vec3f(x, height + buildingHeight / 2, z),
-    //   rotatedDimensions,
-    // );
+    this.collisionSystem.register(
+      d.vec3f(x, height + buildingHeight / 2, z),
+      rotatedDimensions,
+    );
 
     return {
       position: d.vec3f(x, height + buildingHeight / 2, z),
       dimensions: d.vec3f(buildingWidth, buildingHeight, buildingDepth),
+      yaw: yaw,
       color: color,
       mesh: null,
       rotation: d.vec4f(0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)),
