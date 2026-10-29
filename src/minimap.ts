@@ -6,6 +6,7 @@ import { frames, post, targets } from "@typegpu/kit";
 import { MAP_HEIGHT, MAP_WIDTH, RoadEdge, roadWidth } from "./static";
 import * as web from "@typegpu/kit/web";
 import type { Player } from "./player";
+import type { SelectionRange } from "./navigation";
 
 const MINIMAP_SIZE = 200;
 const MINIMAP_WORLD_SIZE = 32;
@@ -17,6 +18,8 @@ const edgeUniformType = d.struct({
     controlPoint2: d.vec2f,
     end: d.vec2f,
     onPath: d.u32,
+    selectionStartT: d.f32,
+    selectionEndT: d.f32,
 });
 
 export class Minimap {
@@ -85,6 +88,8 @@ export class Minimap {
         end,
         controlPoint1: edge.controlPoint1,
         controlPoint2: edge.controlPoint2,
+        selectionStartT: 0,
+        selectionEndT: 0,
         onPath: 0,
       };
     });
@@ -155,7 +160,11 @@ export class Minimap {
             const distance = std.distance(mapUv, puv);
 
             if (distance < roadWidth / MAP_WIDTH) {
-              color = edge.onPath === 1 ? d.vec3f(1, 1, 0) : d.vec3f(0.2, 0.2, 0.2);
+              color = d.vec3f(0.2, 0.2, 0.2);
+
+              if(edge.onPath === 1 && t >= edge.selectionStartT && t <= edge.selectionEndT) {
+                color = d.vec3f(1, 1, 0);
+              }
               break;
             }
           }
@@ -204,10 +213,16 @@ export class Minimap {
     output.end();
   }
 
-  public setSelectedPath(edges: d.Infer<typeof RoadEdge>[]) {
+  public setSelectedPath(path: { edge: d.Infer<typeof RoadEdge>; selection: SelectionRange }[]) {
     for(const edge of this.edgeData)
     {
-        edge.onPath = edges.includes(this.roadGenerator.network[edge.id]) ? 1 : 0;
+        const pathEdge = path.find(p => p.edge === this.roadGenerator.network[edge.id]);
+        const selected = pathEdge !== undefined;
+        const selection = pathEdge?.selection ?? { startT: 0, endT: 0 };
+
+        edge.onPath = selected ? 1 : 0;
+        edge.selectionStartT = selection.startT;
+        edge.selectionEndT = selection.endT;
     }
     this.edgesUniform.write(this.edgeData);
   }

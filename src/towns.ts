@@ -5,6 +5,7 @@ import { meshes } from "@typegpu/kit/geometry";
 import { bezierPoint, bezierTangent, type RoadGenerator } from "./road";
 import type { CollisionSystem } from "./collision";
 import { RoadEdge, roadWidth } from "./static";
+import type { SelectionRange } from "./navigation";
 
 export type Building = {
   position: d.v3f;
@@ -65,7 +66,8 @@ export class TownsGenerator {
           break;
         }
 
-        const randomPointIndex = this.randomInt(2, possiblePoints.length - 3) % possiblePoints.length;
+        const randomPointIndex =
+          this.randomInt(2, possiblePoints.length - 3) % possiblePoints.length;
         const t = randomPointIndex / 10;
         const randomPoint = possiblePoints.splice(randomPointIndex, 1)[0]!;
         const tangent = bezierTangent(
@@ -105,7 +107,11 @@ export class TownsGenerator {
     }
   }
 
-  private tryCreateBuilding(edge: d.Infer<typeof RoadEdge>, edgePoint: d.v2f, tangent: d.v2f): Building {
+  private tryCreateBuilding(
+    edge: d.Infer<typeof RoadEdge>,
+    edgePoint: d.v2f,
+    tangent: d.v2f,
+  ): Building {
     "use gpu";
 
     let buildingHeight = this.randomInt(0.3, 0.6);
@@ -122,12 +128,7 @@ export class TownsGenerator {
     const side = Math.random() < 0.5 ? -1 : 1;
     const normal = d.vec2f(-direction.y * side, direction.x * side);
 
-    const roadEdgeOffset = d.vec3f(
-      buildingWidth + roadWidth,
-      0,
-      buildingDepth + roadWidth,
-    );
-
+    const roadEdgeOffset = d.vec3f(buildingWidth + roadWidth, 0, buildingDepth + roadWidth);
 
     const x = edgePoint.x + normal.x * roadEdgeOffset.x;
     const z = edgePoint.y + normal.y * roadEdgeOffset.z;
@@ -196,7 +197,10 @@ export class TownsGenerator {
     return this.buildings[randomIndex];
   }
 
-  public getPathToBuilding(from: d.v3f, building: Building): d.Infer<typeof RoadEdge>[] {
+  public getPathToBuilding(
+    from: d.v3f,
+    building: Building,
+  ): { edge: d.Infer<typeof RoadEdge>; selection: SelectionRange }[] {
     const buildingPosition = building.position;
     const startEdge = this.roadGenerator.getClosestEdge(from);
     const endEdge = this.roadGenerator.getClosestEdge(buildingPosition);
@@ -209,10 +213,7 @@ export class TownsGenerator {
 
     const queue: d.Infer<typeof RoadEdge>[] = [startEdge];
     const visitedEdges = new Set<d.Infer<typeof RoadEdge>>();
-    const previousEdges = new Map<
-      d.Infer<typeof RoadEdge>,
-      d.Infer<typeof RoadEdge> | null
-    >();
+    const previousEdges = new Map<d.Infer<typeof RoadEdge>, d.Infer<typeof RoadEdge> | null>();
 
     visitedEdges.add(startEdge);
     previousEdges.set(startEdge, null);
@@ -220,12 +221,87 @@ export class TownsGenerator {
     while (queue.length > 0) {
       const currentEdge = queue.shift()!;
       if (currentEdge === endEdge) {
-        const path: d.Infer<typeof RoadEdge>[] = [];
+        const path: { edge: d.Infer<typeof RoadEdge>; selection: SelectionRange }[] = [];
+        const edges: d.Infer<typeof RoadEdge>[] = [];
         let edge: d.Infer<typeof RoadEdge> | null = currentEdge;
 
         while (edge) {
-          path.unshift(edge);
+          edges.unshift(edge);
           edge = previousEdges.get(edge) ?? null;
+        }
+
+        const closestT = (edge: d.Infer<typeof RoadEdge>, position: d.v3f) => {
+          let closest = 0;
+          let closestDistance = Infinity;
+
+          for (let index = 0; index <= 10; index++) {
+            const t = index / 10;
+            const point = bezierPoint(
+              edge.start.position.xz,
+              edge.controlPoint1,
+              edge.controlPoint2,
+              edge.end.position.xz,
+              t,
+            );
+            const distanceX = point.x - position.x;
+            const distanceZ = point.y - position.z;
+            const distance = distanceX * distanceX + distanceZ * distanceZ;
+
+            if (distance < closestDistance) {
+              closest = t;
+              closestDistance = distance;
+            }
+          }
+
+          return closest;
+        };
+
+        for (let index = 0; index < edges.length; index++) {
+          const current = edges[index];
+          const previous = edges[index - 1];
+          const next = edges[index + 1];
+          const entryNode = previous
+            ? previous.start === current.start || previous.end === current.start
+              ? current.start
+              : current.end
+            : null;
+          const exitNode = next
+            ? next.start === current.start || next.end === current.start
+              ? current.start
+              : current.end
+            : null;
+          const isForward = entryNode
+            ? exitNode
+              ? entryNode === current.start && exitNode === current.end
+              : entryNode === current.start
+            : exitNode
+              ? exitNode === current.end
+              : true;
+
+          let startT = isForward ? 0 : 1;
+          let endT = isForward ? 1 : 0;
+
+          if (index === 0) {
+            const fromT = closestT(current, from);
+            if (isForward) {
+              startT = fromT;
+            } else {
+              startT = fromT;
+            }
+          }
+
+          if (index === edges.length - 1) {
+            const buildingT = closestT(current, buildingPosition);
+            endT = buildingT;
+          }
+
+          path.push({
+            edge: current,
+            selection: {
+              startT: Math.min(startT, endT),
+              endT: Math.max(startT, endT),
+            },
+          });
         }
 
         return path;

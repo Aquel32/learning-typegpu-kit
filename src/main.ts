@@ -31,6 +31,7 @@ import { ParticleSystem } from "./particleSystem";
 import { NPCController } from "./npc";
 import { MissionController } from "./missions";
 import { Minimap } from "./minimap";
+import { Navigation } from "./navigation";
 
 const root = await tgpu.init();
 
@@ -67,6 +68,7 @@ const npcController = new NPCController(root, pool);
 const player = new Player(root, collisionSystem, carManager, surface, canvas, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.06, 0.008, 0.132));
 
 const minimap = new Minimap(root, mapGenerator, roadGenerator, townsGenerator, player);
+const navigation = new Navigation(roadGenerator, townsGenerator, player, minimap);
 
 const sim = clock.fixedStep({ step: 1 / 60 });
 const tireSmoke = particles.create(root, player.view, {
@@ -125,7 +127,7 @@ const npcCast = npcController.cast(light.shadow, light);
 
 // const t =npcController.add(roadGenerator.getStartPosition(), d.vec4f(0, 1, 0, 0), "idle");
 // npcController.setNPCGoal(t, roadGenerator.getStartPosition().add(d.vec3f(10, 0, 10)));
-const missionController = new MissionController(root, player, npcController, townsGenerator, minimap);
+const missionController = new MissionController(root, player, npcController, townsGenerator, navigation);
 const mission = missionController.generateNewMission();
 
 await Promise.all([scene.initAsync(), light.shadow.initAsync(), final.initAsync(), npcController.initAsync()]);
@@ -135,6 +137,7 @@ const loop = frames.create(root, (frame) => {
 
   player.update(frame.dt);
   carManager.update(frame.dt);
+  navigation.update();
 
   skidSystem.update(tireSmoke, frame.dt);
   missionController.update(frame.dt);

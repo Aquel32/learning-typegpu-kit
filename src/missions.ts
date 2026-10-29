@@ -3,6 +3,7 @@ import type { NPC, NPCController } from "./npc";
 import type { Building, TownsGenerator } from "./towns";
 import type { Player } from "./player";
 import type { Minimap } from "./minimap";
+import type { Navigation } from "./navigation";
 
 export type Mission = {
     start: Building;
@@ -18,16 +19,16 @@ export class MissionController {
     private npcController;
     private townsGenerator;
     private player;
-    private minimap;
+    private navigation;
 
     public missions: Mission[] = [];
 
-    constructor(root: TgpuRoot, player: Player, npcController: NPCController, townsGenerator: TownsGenerator, minimap: Minimap) {
+    constructor(root: TgpuRoot, player: Player, npcController: NPCController, townsGenerator: TownsGenerator, navigation: Navigation) {
         this.root = root;
         this.npcController = npcController;
         this.townsGenerator = townsGenerator;
         this.player = player;
-        this.minimap = minimap;
+        this.navigation = navigation;
     }
 
     public update(deltaTime: number) {
@@ -76,8 +77,7 @@ export class MissionController {
         };
         this.missions.push(mission);
 
-        const path = this.townsGenerator.getPathToBuilding(this.player.car.position, startBuilding);
-        this.minimap.setSelectedPath(path);
+        this.navigation.navigateToBuilding(startBuilding);
 
         return mission;
     }
@@ -100,8 +100,7 @@ export class MissionController {
         this.npcController.setNPCGoal(npc, null);
         mission.stage = "inTransit";
 
-        const path = this.townsGenerator.getPathToBuilding(this.player.car.position, mission.end);
-        this.minimap.setSelectedPath(path);
+        this.navigation.navigateToBuilding(mission.end);
     }
 
     public removeNPC = (npc: NPC) => {
