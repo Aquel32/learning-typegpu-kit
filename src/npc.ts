@@ -95,6 +95,10 @@ export class NPCController {
             return;
         }
 
+        if(!this.things.has(npc.instanceID)) {
+            return;
+        }
+
         npc.animation = animationName;
         npc.pose = this.getPose(animationName);
         this.things.write(npc.instanceID, { pose: npc.pose });
@@ -151,6 +155,10 @@ export class NPCController {
 
             if (npc.animation !== "walk") {
                 this.setAnimation(npc, "walk");
+            }
+
+            if(!this.things.has(npc.instanceID)) {
+                continue;
             }
 
             const direction = std.normalize(sub);

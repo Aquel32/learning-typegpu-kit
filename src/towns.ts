@@ -4,7 +4,7 @@ import { d, type TgpuCommandEncoder, type TgpuRoot } from "typegpu";
 import { meshes } from "@typegpu/kit/geometry";
 import { bezierPoint, bezierTangent, type RoadGenerator } from "./road";
 import type { CollisionSystem } from "./collision";
-import { roadWidth } from "./static";
+import { RoadEdge, roadWidth } from "./static";
 
 export type Building = {
   position: d.v3f;
@@ -19,6 +19,7 @@ export type Building = {
       uv: d.Vec2f;
     }>
   >;
+  edge: d.Infer<typeof RoadEdge>;
 };
 
 export class TownsGenerator {
@@ -26,6 +27,7 @@ export class TownsGenerator {
   private collisionSystem: CollisionSystem;
   private things;
   public buildings: Building[];
+  private roadGenerator: RoadGenerator;
 
   constructor(
     root: TgpuRoot,
@@ -39,6 +41,7 @@ export class TownsGenerator {
   ) {
     "use gpu";
     this.collisionSystem = collisionSystem;
+    this.roadGenerator = roadGenerator;
     this.mapGenerator = mapGenerator;
     this.things = instances.create(root, pool, {
       capacity: townsTries * buildingsPerTownTries + loneBuildingsTries,
@@ -73,7 +76,7 @@ export class TownsGenerator {
           t,
         );
 
-        const building = this.tryCreateBuilding(randomPoint, tangent);
+        const building = this.tryCreateBuilding(randomEdge, randomPoint, tangent);
         this.buildings.push(building);
       }
     }
@@ -98,11 +101,11 @@ export class TownsGenerator {
         edge.end.position.xz,
         t,
       );
-      this.buildings.push(this.tryCreateBuilding(point, tangent));
+      this.buildings.push(this.tryCreateBuilding(edge, point, tangent));
     }
   }
 
-  private tryCreateBuilding(edgePoint: d.v2f, tangent: d.v2f): Building {
+  private tryCreateBuilding(edge: d.Infer<typeof RoadEdge>, edgePoint: d.v2f, tangent: d.v2f): Building {
     "use gpu";
 
     let buildingHeight = this.randomInt(0.3, 0.6);
@@ -151,6 +154,7 @@ export class TownsGenerator {
       mesh: null,
       rotation: d.vec4f(0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)),
       shape: shape,
+      edge: edge,
     };
   }
 
@@ -190,5 +194,54 @@ export class TownsGenerator {
   public getRandomBuilding(): Building {
     const randomIndex = Math.floor(Math.random() * this.buildings.length);
     return this.buildings[randomIndex];
+  }
+
+  public getPathToBuilding(from: d.v3f, building: Building): d.Infer<typeof RoadEdge>[] {
+    const buildingPosition = building.position;
+    const startEdge = this.roadGenerator.getClosestEdge(from);
+    const endEdge = this.roadGenerator.getClosestEdge(buildingPosition);
+    if (!startEdge) {
+      throw new Error("No closest edge found for building");
+    }
+    if (!endEdge) {
+      throw new Error("No road edge found for building");
+    }
+
+    const queue: d.Infer<typeof RoadEdge>[] = [startEdge];
+    const visitedEdges = new Set<d.Infer<typeof RoadEdge>>();
+    const previousEdges = new Map<
+      d.Infer<typeof RoadEdge>,
+      d.Infer<typeof RoadEdge> | null
+    >();
+
+    visitedEdges.add(startEdge);
+    previousEdges.set(startEdge, null);
+
+    while (queue.length > 0) {
+      const currentEdge = queue.shift()!;
+      if (currentEdge === endEdge) {
+        const path: d.Infer<typeof RoadEdge>[] = [];
+        let edge: d.Infer<typeof RoadEdge> | null = currentEdge;
+
+        while (edge) {
+          path.unshift(edge);
+          edge = previousEdges.get(edge) ?? null;
+        }
+
+        return path;
+      }
+
+      for (const neighbour of this.roadGenerator.getNeighbours(currentEdge)) {
+        if (visitedEdges.has(neighbour)) {
+          continue;
+        }
+
+        visitedEdges.add(neighbour);
+        previousEdges.set(neighbour, currentEdge);
+        queue.push(neighbour);
+      }
+    }
+
+    return [];
   }
 }

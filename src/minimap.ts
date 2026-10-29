@@ -204,10 +204,11 @@ export class Minimap {
     output.end();
   }
 
-//   public setSelectedPath(edges: d.Infer<typeof RoadEdge>[]) {
-//     for(const edge of this.edgeData)
-//     {
-//         edge.onPath = edges.includes(this.roadGenerator.network[edge.id]) ? 1 : 0;
-//     }
-//   }
+  public setSelectedPath(edges: d.Infer<typeof RoadEdge>[]) {
+    for(const edge of this.edgeData)
+    {
+        edge.onPath = edges.includes(this.roadGenerator.network[edge.id]) ? 1 : 0;
+    }
+    this.edgesUniform.write(this.edgeData);
+  }
 }

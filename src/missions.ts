@@ -2,6 +2,7 @@ import { d, std, type TgpuRoot } from "typegpu";
 import type { NPC, NPCController } from "./npc";
 import type { Building, TownsGenerator } from "./towns";
 import type { Player } from "./player";
+import type { Minimap } from "./minimap";
 
 export type Mission = {
     start: Building;
@@ -17,14 +18,16 @@ export class MissionController {
     private npcController;
     private townsGenerator;
     private player;
+    private minimap;
 
     public missions: Mission[] = [];
 
-    constructor(root: TgpuRoot, player: Player, npcController: NPCController, townsGenerator: TownsGenerator) {
+    constructor(root: TgpuRoot, player: Player, npcController: NPCController, townsGenerator: TownsGenerator, minimap: Minimap) {
         this.root = root;
         this.npcController = npcController;
         this.townsGenerator = townsGenerator;
         this.player = player;
+        this.minimap = minimap;
     }
 
     public update(deltaTime: number) {
@@ -38,16 +41,20 @@ export class MissionController {
         switch (mission.stage) {
             case "waitingForPickup":
                 const distance = std.distance(this.player.car.position, mission.npc.position);
-                if (distance < 3) {
+                if (distance < 1) {
                     this.npcController.setNPCGoal(mission.npc, this.player.car.position.add(d.vec3f(0, this.player.car.dimensions.y / 2, 0)), this.arrivedToCar);
                 }
                 break;
             case "inTransit":
                 const distanceToEnd = std.distance(this.player.car.position, mission.end.position);
-                if (distanceToEnd < 3) {
+                if (distanceToEnd < 1) {
                     this.npcController.setNPCVisibility(mission.npc, true);
-                    this.npcController.setNPCGoal(mission.npc, mission.end.position.add(d.vec3f(0, 1, 0)), this.removeNPC);
+                    const goal = d.vec3f(mission.end.position.x + mission.end.dimensions.x / 2 + 1, this.player.car.dimensions.y / 2, mission.end.position.z);
+                    this.npcController.setNPCGoal(mission.npc, goal, this.removeNPC);
+                    this.npcController.setNPCTransform(mission.npc, this.player.car.position.add(d.vec3f(0, this.player.car.dimensions.y / 2, 0)), d.vec4f(0, 1, 0, 0));
                     mission.stage = "droppedOff";
+
+                    this.endMission(mission);
                 }
                 break;
         }
@@ -56,7 +63,7 @@ export class MissionController {
     public generateNewMission() {
         const startBuilding = this.townsGenerator.getRandomBuilding();
         const endBuilding = this.townsGenerator.getRandomBuilding();
-        const npcPosition = d.vec3f(startBuilding.position.x + startBuilding.dimensions.x / 2 + 3, startBuilding.position.y, startBuilding.position.z);
+        const npcPosition = d.vec3f(startBuilding.position.x + startBuilding.dimensions.x / 2 + 1, 0, startBuilding.position.z);
         const npcRotation = d.vec4f(0, 1, 0, 0);
 
         const npc = this.npcController.add(npcPosition, npcRotation, "idle");
@@ -69,13 +76,17 @@ export class MissionController {
         };
         this.missions.push(mission);
 
-        this.npcController.setNPCGoal(npc, endBuilding.position.add(d.vec3f(0, 0, 0)), this.arrivedToCar);
+        const path = this.townsGenerator.getPathToBuilding(this.player.car.position, startBuilding);
+        this.minimap.setSelectedPath(path);
 
         return mission;
     }
 
     public endMission(mission: Mission) {
+        this.missions = this.missions.filter(m => m !== mission);
+        // this.minimap.setSelectedPath([]); new mission path will overwrite old one
 
+        this.generateNewMission();
     }
 
     public arrivedToCar = (npc: NPC) => {
@@ -88,9 +99,12 @@ export class MissionController {
         this.npcController.setNPCVisibility(npc, false);
         this.npcController.setNPCGoal(npc, null);
         mission.stage = "inTransit";
+
+        const path = this.townsGenerator.getPathToBuilding(this.player.car.position, mission.end);
+        this.minimap.setSelectedPath(path);
     }
 
     public removeNPC = (npc: NPC) => {
-
+        this.npcController.remove(npc);
     }
 }

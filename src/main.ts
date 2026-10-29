@@ -125,9 +125,8 @@ const npcCast = npcController.cast(light.shadow, light);
 
 // const t =npcController.add(roadGenerator.getStartPosition(), d.vec4f(0, 1, 0, 0), "idle");
 // npcController.setNPCGoal(t, roadGenerator.getStartPosition().add(d.vec3f(10, 0, 10)));
-const missionController = new MissionController(root, player, npcController, townsGenerator);
+const missionController = new MissionController(root, player, npcController, townsGenerator, minimap);
 const mission = missionController.generateNewMission();
-player.car.position = mission.start.position.add(d.vec3f(2, 1, 0));
 
 await Promise.all([scene.initAsync(), light.shadow.initAsync(), final.initAsync(), npcController.initAsync()]);
 
@@ -138,7 +137,6 @@ const loop = frames.create(root, (frame) => {
   carManager.update(frame.dt);
 
   skidSystem.update(tireSmoke, frame.dt);
-  // npcController.setNPCGoal(t, player.car.position.add(d.vec3f(0, player.car.dimensions.y / 2, 0)));
   missionController.update(frame.dt);
   npcController.update(frame.dt);
 
