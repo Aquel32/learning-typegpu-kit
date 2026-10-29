@@ -13,6 +13,8 @@ const terrainHeight = 2;
 const heightMapWidth = MAP_WIDTH * MAP_SUBDIVISIONS * HEIGHT_MAP_SCALE;
 const heightMapHeight = MAP_HEIGHT * MAP_SUBDIVISIONS * HEIGHT_MAP_SCALE;
 
+export const topColor = d.vec3f(0.1, 0.5, 0.2);
+export const bottomColor = d.vec3f(0.0, 0.3, 0.1);
 
 const heightAt = (u: number, v: number) => {
     "use gpu";
@@ -48,6 +50,8 @@ export class MapGenerator {
   private heightMap: Map<string, number>;
   private pool: meshPool.MeshPool<{}>;
   private heightMapStorage: TgpuBuffer<d.WgslArray<d.F32>> & UniformFlag & StorageFlag
+  public target;
+  public view;
 
   constructor(root: TgpuRoot, pool: meshPool.MeshPool<{}>) {
     this.pool = pool;
@@ -55,18 +59,18 @@ export class MapGenerator {
     this.heightMap = new Map();
 
     const size = { width: heightMapWidth, height: heightMapHeight };
-    const target = targets.create(root, size, {
+    this.target = targets.create(root, size, {
         perlin: { format: 'r16float', layers: 1, sampled: true },
     });
-    const view = target.textures.perlin.createView();
+    this.view = this.target.textures.perlin.createView();
    const sampler = root.createSampler({
         magFilter: 'nearest',
         minFilter: 'nearest',
     });
 
-    function sampleHeight(u: number, v: number): number {
+    const sampleHeight = (u: number, v: number): number => {
         "use gpu";
-        return std.textureSampleLevel(view.$, sampler.$, d.vec2f(u, v), 0).x;
+        return std.textureSampleLevel(this.view.$, sampler.$, d.vec2f(u, v), 0).x;
     }
 
     const pipeline = root.createRenderPipeline({
@@ -78,7 +82,7 @@ export class MapGenerator {
         },
         targets: {format: 'r16float'}
     });
-    pipeline.withColorAttachment({view:target.textures.perlin}).draw(3)
+    pipeline.withColorAttachment({view:this.target.textures.perlin}).draw(3)
 
     this.mesh = null;
     
@@ -256,8 +260,7 @@ export class MapGenerator {
     "use gpu";
     const point = shading.point(vertex.world, vertex.normal);
 
-    const topColor = d.vec3f(0.1, 0.5, 0.2);
-    const bottomColor = d.vec3f(0.0, 0.3, 0.1);
+    
     const blendFactor = std.clamp((point.position.y + 1) / 2, 0, 1);
     const blendedColor = topColor * blendFactor + bottomColor * (1 - blendFactor);
 

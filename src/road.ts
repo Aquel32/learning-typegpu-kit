@@ -630,6 +630,8 @@ export class RoadGenerator {
 }
 
 export function bezierPoint(p0: d.v2f, p1: d.v2f, p2: d.v2f, p3: d.v2f, t: number): d.v2f {
+  "use gpu";
+
   const u = 1 - t;
   const tt = t * t;
   const uu = u * u;

@@ -30,6 +30,7 @@ import { SkidMarkSystem } from "./skidMarks";
 import { ParticleSystem } from "./particleSystem";
 import { NPCController } from "./npc";
 import { MissionController } from "./missions";
+import { Minimap } from "./minimap";
 
 const root = await tgpu.init();
 
@@ -64,6 +65,8 @@ const treeGenerator = new TreeGenerator(root, pool, mapGenerator, collisionSyste
 const townsGenerator = new TownsGenerator(root, pool, mapGenerator, roadGenerator, collisionSystem, 5, 3, 5);
 const npcController = new NPCController(root, pool);
 const player = new Player(root, collisionSystem, carManager, surface, canvas, roadGenerator.getStartPosition(), roadGenerator.getStartDirection(), d.vec3f(0, 0, 0), 5, d.vec3f(0.06, 0.008, 0.132));
+
+const minimap = new Minimap(root, mapGenerator, roadGenerator, townsGenerator, player);
 
 const sim = clock.fixedStep({ step: 1 / 60 });
 const tireSmoke = particles.create(root, player.view, {
@@ -156,6 +159,8 @@ const loop = frames.create(root, (frame) => {
   });
   final.draw(output);
   output.end();
+
+  minimap.render(frame);
 });
 
 web.animate(loop);

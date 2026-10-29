@@ -25,7 +25,7 @@ export class TownsGenerator {
   private mapGenerator: MapGenerator;
   private collisionSystem: CollisionSystem;
   private things;
-  private buildings: Building[];
+  public buildings: Building[];
 
   constructor(
     root: TgpuRoot,
